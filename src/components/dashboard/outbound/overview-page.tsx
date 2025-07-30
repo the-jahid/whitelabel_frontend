@@ -366,7 +366,7 @@ const clearAnalyticsStorage = () => {
 }
 
 // API Base URLs
-const API_BASE_URL = "http://localhost:3000"
+const API_BASE_URL = "https://whitelabel-server.onrender.com"
 const ANALYTICS_API_BASE_URL = "https://api.nlpearl.ai/v1"
 
 // Helper function to get date range (last 30 days by default)
@@ -434,20 +434,50 @@ const OverviewPage = () => {
           headers: { "Cache-Control": "no-cache" },
         })
         clearTimeout(timeoutId)
+
         if (!response.ok) {
           if (response.status === 404) {
             setCampaigns([])
             setSelectedCampaign(null)
+            toast({
+              title: "No campaigns found",
+              description: "No campaigns found for this email address.",
+              variant: "destructive",
+            })
+            return []
           }
           throw new Error(`HTTP error! status: ${response.status}`)
         }
+
         const data: CampaignData[] = await response.json()
-        setCampaigns(data)
-        if (data.length > 0) {
-          setSelectedCampaign(data[0])
-          fetchAnalytics(data[0].outboundId, data[0].bearerToken)
+
+        // Ensure data is an array
+        const campaignsArray = Array.isArray(data) ? data : []
+
+        setCampaigns(campaignsArray)
+
+        if (campaignsArray.length > 0) {
+          // Check if we have a previously selected campaign that still exists
+          const savedCampaignId = getFromLocalStorage(STORAGE_KEYS.CAMPAIGN_ID)
+          const existingCampaign = savedCampaignId ? campaignsArray.find((c) => c.id === savedCampaignId) : null
+
+          const campaignToSelect = existingCampaign || campaignsArray[0]
+          setSelectedCampaign(campaignToSelect)
+
+          // Save the selected campaign and fetch analytics
+          saveToLocalStorage(STORAGE_KEYS.CAMPAIGN_ID, campaignToSelect.id)
+          saveToLocalStorage(STORAGE_KEYS.BEARER_TOKEN, campaignToSelect.bearerToken)
+          saveToLocalStorage(STORAGE_KEYS.OUTBOUND_ID, campaignToSelect.outboundId)
+
+          fetchAnalytics(campaignToSelect.outboundId, campaignToSelect.bearerToken)
+        } else {
+          toast({
+            title: "No campaigns found",
+            description: "No campaigns found for this email address.",
+          })
         }
-        return data
+
+        return campaignsArray
       } catch (error) {
         console.error("Error fetching campaigns:", error)
         const errorMessage =
@@ -461,6 +491,8 @@ const OverviewPage = () => {
           description: errorMessage,
           variant: "destructive",
         })
+        setCampaigns([])
+        setSelectedCampaign(null)
         return []
       } finally {
         if (showLoader) setLoading(false)
@@ -597,7 +629,11 @@ const OverviewPage = () => {
   useEffect(() => {
     if (isLoaded && userEmail) {
       console.log("User Email:", userEmail)
-      fetchCampaigns(userEmail)
+      fetchCampaigns(userEmail).then((campaignsData) => {
+        if (!campaignsData || campaignsData.length === 0) {
+          console.log("No campaigns found for user:", userEmail)
+        }
+      })
     }
   }, [isLoaded, userEmail, fetchCampaigns])
 
@@ -1129,7 +1165,7 @@ const OverviewPage = () => {
             <div className="p-4 lg:p-6 border-b border-gray-200">
               <div className="flex items-center justify-center">
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                <span className="text-sm">Loading...</span>
+                <span className="text-sm">Loading campaigns...</span>
               </div>
             </div>
           ) : (
@@ -1146,16 +1182,17 @@ const OverviewPage = () => {
                   {isConfigured ? `✓ ${campaigns.length} Campaign(s)` : "⚠ No Campaigns"}
                 </p>
                 {selectedCampaign && (
-                  <p className="text-xs text-gray-500">
-                    Updated: {new Date(selectedCampaign.updatedAt).toLocaleDateString()}
-                  </p>
+                  <div className="text-xs text-gray-500 mt-1">
+                    <p>Campaign: {selectedCampaign.campaignName}</p>
+                    <p>Updated: {new Date(selectedCampaign.updatedAt).toLocaleDateString()}</p>
+                  </div>
                 )}
               </div>
             </div>
           )}
 
           {/* Campaign Selection */}
-          {campaigns.length > 0 && (
+          {campaigns.length > 0 ? (
             <div className="p-4 lg:p-6 border-b border-gray-200">
               <h3 className="text-sm font-semibold mb-3">Select Campaign</h3>
               <Select value={selectedCampaign?.id || ""} onValueChange={handleCampaignChange}>
@@ -1173,6 +1210,15 @@ const OverviewPage = () => {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+          ) : (
+            <div className="p-4 lg:p-6 border-b border-gray-200">
+              <div className="text-center py-4">
+                <p className="text-sm text-gray-500 mb-2">No campaigns available</p>
+                <p className="text-xs text-gray-400">
+                  {loading ? "Loading campaigns..." : "Please check your email configuration"}
+                </p>
+              </div>
             </div>
           )}
 

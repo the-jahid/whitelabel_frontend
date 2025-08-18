@@ -20,10 +20,42 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Progress } from "@/components/ui/progress"
 import { Slider } from "@/components/ui/slider"
-import { Phone, Plus, Upload, X, Play, Pause, Clock, PhoneCall, Settings, AlertCircle } from "lucide-react"
+import {
+  Phone,
+  Plus,
+  Upload,
+  X,
+  Play,
+  Pause,
+  Clock,
+  PhoneCall,
+  Settings,
+  AlertCircle,
+  Download,
+} from "lucide-react"
 import * as ToastPrimitives from "@radix-ui/react-toast"
 import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
+
+/* ----------------- CSV helpers ----------------- */
+const escapeCsv = (val: string | number | null | undefined) => {
+  if (val === null || val === undefined) return ""
+  const str = String(val)
+  return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str
+}
+
+const downloadBlob = (content: string, filename: string, type = "text/csv;charset=utf-8;") => {
+  const blob = new Blob([content], { type })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+/* ----------------------------------------------- */
 
 // Toast Components
 const ToastProvider = ToastPrimitives.Provider
@@ -617,7 +649,7 @@ export default function OutboundCallingSystem() {
     })
   }
 
-  // Process bulk import
+  // Process bulk import (pasted data)
   const handleBulkImport = () => {
     try {
       // Split by lines and process
@@ -744,8 +776,8 @@ export default function OutboundCallingSystem() {
 
       // Save call info with request ID to localStorage
       const callInfo = {
-        id: requestId, // Use the request ID
-        requestId: requestId, // Store request ID separately for fetching call ID later
+        id: requestId,
+        requestId: requestId,
         from: createData.from || "Unknown",
         to: createData.to || lead.phoneNumber,
         leadName: `${lead.firstName} ${lead.lastName}`,
@@ -755,7 +787,6 @@ export default function OutboundCallingSystem() {
         queuePosition: createData.queuePosition || 0,
       }
 
-      // Save call info to localStorage
       const existingCalls = JSON.parse(localStorage.getItem("outboundCalls") || "[]")
       existingCalls.push(callInfo)
       localStorage.setItem("outboundCalls", JSON.stringify(existingCalls))
@@ -771,7 +802,6 @@ export default function OutboundCallingSystem() {
       return true
     } catch (error) {
       console.error("Call failed:", error)
-      // Update lead status to failed
       setLeads(leads.map((l) => (l.id === lead.id ? { ...l, status: "failed" } : l)))
       toast({
         title: "Call failed",
@@ -843,7 +873,6 @@ export default function OutboundCallingSystem() {
       return
     }
 
-    // Get selected leads that are pending
     const selectedLeadsList = leads.filter((lead) => selectedLeads.has(lead.id) && lead.status === "pending")
 
     if (selectedLeadsList.length === 0) {
@@ -855,7 +884,6 @@ export default function OutboundCallingSystem() {
       return
     }
 
-    // Set up bulk call state
     setBulkCallState({
       inProgress: true,
       currentIndex: 0,
@@ -864,10 +892,8 @@ export default function OutboundCallingSystem() {
       paused: false,
     })
 
-    // Store the queue in ref to avoid state closure issues
     bulkCallQueueRef.current = [...selectedLeadsList]
 
-    // Start the calling process
     processBulkCallQueue()
     setIsBulkCallOpen(false)
     toast({
@@ -885,20 +911,16 @@ export default function OutboundCallingSystem() {
     const lead = bulkCallQueueRef.current.shift()
     if (!lead) return
 
-    // Make the call
     await makeCall(lead)
 
-    // Update progress
     setBulkCallState((prev) => ({
       ...prev,
       currentIndex: prev.currentIndex + 1,
     }))
 
-    // If there are more calls to make, schedule the next one
     if (bulkCallQueueRef.current.length > 0 && !bulkCallState.paused) {
       bulkCallTimerRef.current = setTimeout(processBulkCallQueue, bulkCallState.timeframe * 1000)
     } else {
-      // All done or paused
       if (bulkCallQueueRef.current.length === 0) {
         setBulkCallState((prev) => ({
           ...prev,
@@ -959,6 +981,34 @@ export default function OutboundCallingSystem() {
     })
   }
 
+  // ---------------- CSV downloaders (Template + Export) ----------------
+  const downloadCsvTemplate = () => {
+    const headers = ["firstName", "lastName", "email", "phoneNumber"].join(",")
+    const rows = [
+      ["John", "Doe", "john@example.com", "+1234567890"],
+      ["Jane", "Smith", "jane@example.com", "+0987654321"],
+    ]
+      .map((r) => r.map(escapeCsv).join(","))
+      .join("\n")
+    const csv = `${headers}\n${rows}\n`
+    downloadBlob(csv, "leads-template.csv")
+  }
+
+  const exportLeadsCsv = () => {
+    if (leads.length === 0) {
+      toast({ title: "No leads to export", description: "Add or import some leads first.", variant: "destructive" })
+      return
+    }
+    const headers = ["firstName", "lastName", "email", "phoneNumber", "status"].join(",")
+    const rows = leads
+      .map((l) => [l.firstName, l.lastName, l.email || "", l.phoneNumber || "", l.status].map(escapeCsv).join(","))
+      .join("\n")
+    const csv = `${headers}\n${rows}\n`
+    const date = new Date().toISOString().split("T")[0]
+    downloadBlob(csv, `leads-${date}.csv`)
+  }
+  // --------------------------------------------------------------------
+
   // Clean up on unmount
   useEffect(() => {
     return () => {
@@ -1011,6 +1061,12 @@ export default function OutboundCallingSystem() {
           <Button variant="outline" onClick={() => setIsBulkImportOpen(true)}>
             <Upload className="mr-2 h-4 w-4" /> Bulk Import
           </Button>
+
+          {/* New: Export leads CSV button */}
+          <Button variant="outline" onClick={exportLeadsCsv} disabled={leads.length === 0}>
+            <Download className="mr-2 h-4 w-4" /> Export CSV
+          </Button>
+
           <Button
             variant="secondary"
             onClick={() => setIsBulkCallOpen(true)}
@@ -1358,10 +1414,8 @@ export default function OutboundCallingSystem() {
                     <p className="text-sm mb-2">Your data should be in CSV format with the following columns:</p>
                     <pre className="bg-muted p-4 rounded-md text-xs">
                       firstName,lastName,email,phoneNumber
-                      <br />
-                      John,Doe,john@example.com,+1234567890
-                      <br />
-                      Jane,Smith,jane@example.com,+0987654321
+                      {"\n"}John,Doe,john@example.com,+1234567890
+                      {"\n"}Jane,Smith,jane@example.com,+0987654321
                     </pre>
                   </div>
                   <div>
@@ -1397,6 +1451,13 @@ export default function OutboundCallingSystem() {
             <Button variant="outline" onClick={() => setIsBulkImportOpen(false)}>
               Cancel
             </Button>
+
+            {/* New: Download CSV template from modal */}
+            <Button type="button" variant="secondary" onClick={downloadCsvTemplate}>
+              <Download className="mr-2 h-4 w-4" />
+              Download CSV Template
+            </Button>
+
             <Button onClick={bulkData ? handleBulkImport : handleCsvImport}>
               {csvFile ? "Import from CSV" : "Import Leads"}
             </Button>

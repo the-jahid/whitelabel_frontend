@@ -2,8 +2,6 @@
 import React, { useState } from "react";
 
 import {
-  IconDashboardFilled,
-  IconDropCircle,
   IconOutbound,
 } from "@tabler/icons-react";
 import { motion } from "motion/react";

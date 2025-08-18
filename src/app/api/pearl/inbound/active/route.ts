@@ -3,12 +3,14 @@ import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
+type Body = {
+  inboundId?: string;
+  isActive?: boolean;
+};
+
 export async function POST(req: Request) {
   try {
-    const { inboundId, isActive } = (await req.json()) as {
-      inboundId?: string;
-      isActive?: boolean;
-    };
+    const { inboundId, isActive } = (await req.json()) as Body;
 
     if (!inboundId) {
       return NextResponse.json({ error: "Missing 'inboundId'." }, { status: 400 });
@@ -27,7 +29,9 @@ export async function POST(req: Request) {
       );
     }
 
-    const url = `https://api.nlpearl.ai/v1/Inbound/${encodeURIComponent(inboundId)}/Active`;
+    const url = `https://api.nlpearl.ai/v1/Inbound/${encodeURIComponent(
+      inboundId
+    )}/Active`;
 
     const resp = await fetch(url, {
       method: "POST",
@@ -54,10 +58,9 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ ok: true, data });
-  } catch (err: any) {
-    return NextResponse.json(
-      { error: err?.message ?? "Unknown error" },
-      { status: 500 }
-    );
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unknown error";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

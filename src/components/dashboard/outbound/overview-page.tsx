@@ -369,6 +369,10 @@ const clearAnalyticsStorage = () => {
 const API_BASE_URL = "https://whitelabel-server.onrender.com"
 const ANALYTICS_API_BASE_URL = "https://api.nlpearl.ai/v1"
 
+// ✅ Custom pricing (YOUR rates)
+const OUR_CALL_RATE_PER_MIN = 0.4 // $ per minute
+const OUR_SMS_RATE = 0.16 // $ per SMS (not used in this chart)
+
 // Helper function to get date range (last 30 days by default)
 const getDefaultDateRange = () => {
   const to = new Date()
@@ -412,6 +416,133 @@ const OverviewPage = () => {
   const [activeSection, setActiveSection] = useState("overview")
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
+  // Active-state + toggling state
+  // null = unknown; true = ON; false = OFF
+  const [isCampaignOn, setIsCampaignOn] = useState<boolean | null>(null)
+  const [isToggling, setIsToggling] = useState(false)
+  const [isCampaignChecking, setIsCampaignChecking] = useState(false)
+
+  // ---- STATUS CHECK (required) ----
+  // Use GET /Outbound/{id}, where status: 1 => ON, 2 => OFF
+  const fetchOutboundActive = useCallback(
+    async (outboundId: string, bearerToken: string) => {
+      setIsCampaignChecking(true)
+      try {
+        const res = await fetch(`${ANALYTICS_API_BASE_URL}/Outbound/${outboundId}`, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${bearerToken.replace("Bearer ", "")}`,
+            "Content-Type": "application/json",
+          },
+        })
+
+        if (!res.ok) {
+          let msg = `Failed to fetch status (${res.status})`
+          if (res.status === 401) msg = "Invalid bearer token."
+          if (res.status === 403) msg = "Access denied."
+          if (res.status === 404) msg = "Outbound ID not found."
+          throw new Error(msg)
+        }
+
+        const data = await res.json()
+        const status: number | undefined = data?.status
+
+        if (status === 1) {
+          setIsCampaignOn(true)
+          return true
+        } else if (status === 2) {
+          setIsCampaignOn(false)
+          return false
+        } else {
+          setIsCampaignOn(null)
+          toast({
+            title: "Unknown status",
+            description: `Received status=${String(status)}. Expected 1 (ON) or 2 (OFF).`,
+            variant: "destructive",
+          })
+          return null
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Unable to read campaign status."
+        toast({ title: "Status check failed", description: msg, variant: "destructive" })
+        setIsCampaignOn(null)
+        return null
+      } finally {
+        setIsCampaignChecking(false)
+      }
+    },
+    [toast],
+  )
+
+  // ---- TOGGLE (unchanged) ----
+  const toggleOutboundActive = useCallback(
+    async (outboundId: string, bearerToken: string, isActive: boolean) => {
+      const response = await fetch(`${ANALYTICS_API_BASE_URL}/Outbound/${outboundId}/Active`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${bearerToken.replace("Bearer ", "")}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ isActive }),
+      })
+
+      if (!response.ok) {
+        let errorMessage = "Failed to toggle campaign."
+        switch (response.status) {
+          case 401:
+            errorMessage = "Invalid bearer token."
+            break
+          case 403:
+            errorMessage = "Access denied."
+            break
+          case 404:
+            errorMessage = "Outbound ID not found."
+            break
+          case 400:
+            errorMessage = "Invalid request body."
+            break
+          case 500:
+            errorMessage = "Server error."
+            break
+          default:
+            errorMessage = `API error (${response.status}).`
+        }
+        throw new Error(errorMessage)
+      }
+    },
+    [],
+  )
+
+  const handleCampaign = useCallback(async () => {
+    if (!selectedCampaign?.outboundId || !selectedCampaign?.bearerToken) {
+      toast({
+        title: "Select a campaign",
+        description: "No campaign credentials available.",
+        variant: "destructive",
+      })
+      return
+    }
+    if (isToggling || isCampaignChecking || isCampaignOn === null) return
+
+    const next = !isCampaignOn
+    setIsCampaignOn(next) // optimistic
+    setIsToggling(true)
+
+    try {
+      await toggleOutboundActive(selectedCampaign.outboundId, selectedCampaign.bearerToken, next)
+      toast({
+        title: next ? "Campaign enabled" : "Campaign disabled",
+        description: `Outbound ${selectedCampaign.outboundId} is now ${next ? "active" : "inactive"}.`,
+      })
+    } catch (err) {
+      setIsCampaignOn(!next) // revert
+      const msg = err instanceof Error ? err.message : "Unexpected error."
+      toast({ title: "Toggle failed", description: msg, variant: "destructive" })
+    } finally {
+      setIsToggling(false)
+    }
+  }, [selectedCampaign, isCampaignOn, isToggling, isCampaignChecking, toggleOutboundActive, toast])
+
   // Memoized values
   const userEmail = useMemo(() => {
     return user?.emailAddresses?.[0]?.emailAddress || ""
@@ -420,6 +551,26 @@ const OverviewPage = () => {
   const isConfigured = useMemo(() => {
     return campaigns.length > 0
   }, [campaigns.length])
+
+  // 🔢 Recalculate cost timeline using YOUR call rate
+  const ourCostTimeline = useMemo(() => {
+    if (!analyticsData) return []
+
+    const avgMap = new Map((analyticsData.callsAverageTimeLine || []).map((d) => [d.date, d.averageCallDuration]))
+    const callMap = new Map((analyticsData.callsStatusTimeLine || []).map((d) => [d.date, d.totalCalls]))
+    const dates = Array.from(new Set([...avgMap.keys(), ...callMap.keys()])).sort(
+      (a, b) => new Date(a).getTime() - new Date(b).getTime(),
+    )
+
+    return dates.map((date) => {
+      const avgSec = avgMap.get(date) ?? 0
+      const calls = callMap.get(date) ?? 0
+      const avgMin = avgSec / 60
+      const averageCostPerCall = +(avgMin * OUR_CALL_RATE_PER_MIN).toFixed(3)
+      const totalPrice = +(calls * averageCostPerCall).toFixed(2)
+      return { date, totalPrice, averageCostPerCall }
+    })
+  }, [analyticsData])
 
   // Fetch campaigns by email
   const fetchCampaigns = useCallback(
@@ -450,31 +601,24 @@ const OverviewPage = () => {
         }
 
         const data: CampaignData[] = await response.json()
-
-        // Ensure data is an array
         const campaignsArray = Array.isArray(data) ? data : []
-
         setCampaigns(campaignsArray)
 
         if (campaignsArray.length > 0) {
-          // Check if we have a previously selected campaign that still exists
           const savedCampaignId = getFromLocalStorage(STORAGE_KEYS.CAMPAIGN_ID)
           const existingCampaign = savedCampaignId ? campaignsArray.find((c) => c.id === savedCampaignId) : null
-
           const campaignToSelect = existingCampaign || campaignsArray[0]
           setSelectedCampaign(campaignToSelect)
 
-          // Save the selected campaign and fetch analytics
+          // Save + fetch analytics + fetch active state
           saveToLocalStorage(STORAGE_KEYS.CAMPAIGN_ID, campaignToSelect.id)
           saveToLocalStorage(STORAGE_KEYS.BEARER_TOKEN, campaignToSelect.bearerToken)
           saveToLocalStorage(STORAGE_KEYS.OUTBOUND_ID, campaignToSelect.outboundId)
 
           fetchAnalytics(campaignToSelect.outboundId, campaignToSelect.bearerToken)
+          fetchOutboundActive(campaignToSelect.outboundId, campaignToSelect.bearerToken)
         } else {
-          toast({
-            title: "No campaigns found",
-            description: "No campaigns found for this email address.",
-          })
+          toast({ title: "No campaigns found", description: "No campaigns found for this email address." })
         }
 
         return campaignsArray
@@ -486,11 +630,7 @@ const OverviewPage = () => {
               ? "Request timed out. Please try again."
               : "Failed to fetch campaigns. Please try again."
             : "An unexpected error occurred."
-        toast({
-          title: "Error",
-          description: errorMessage,
-          variant: "destructive",
-        })
+        toast({ title: "Error", description: errorMessage, variant: "destructive" })
         setCampaigns([])
         setSelectedCampaign(null)
         return []
@@ -498,7 +638,7 @@ const OverviewPage = () => {
         if (showLoader) setLoading(false)
       }
     },
-    [toast],
+    [toast,  fetchOutboundActive],
   )
 
   // Fetch analytics data
@@ -525,7 +665,6 @@ const OverviewPage = () => {
         clearTimeout(timeoutId)
         if (!response.ok) {
           let errorMessage = "Failed to fetch analytics data."
-
           switch (response.status) {
             case 401:
               errorMessage = "Invalid bearer token. Please check your authentication credentials."
@@ -545,40 +684,24 @@ const OverviewPage = () => {
             default:
               errorMessage = `API error (${response.status}). Please check your credentials and try again.`
           }
-
           throw new Error(errorMessage)
         }
         const data: AnalyticsData = await response.json()
         setAnalyticsData(data)
-        // Save successful credentials to localStorage
         saveToLocalStorage(STORAGE_KEYS.BEARER_TOKEN, bearerToken)
         saveToLocalStorage(STORAGE_KEYS.OUTBOUND_ID, outboundId)
         if (selectedCampaign) {
           saveToLocalStorage(STORAGE_KEYS.CAMPAIGN_ID, selectedCampaign.id)
         }
-        toast({
-          title: "Success",
-          description: "Analytics data loaded successfully!",
-        })
+        toast({ title: "Success", description: "Analytics data loaded successfully!" })
       } catch (error) {
         console.error("Error fetching analytics:", error)
         let errorMessage = "An unexpected error occurred."
-
         if (error instanceof Error) {
-          if (error.name === "AbortError") {
-            errorMessage = "Analytics request timed out. Please try again."
-          } else {
-            errorMessage = error.message
-          }
+          if (error.name === "AbortError") errorMessage = "Analytics request timed out. Please try again."
+          else errorMessage = error.message
         }
-
-        toast({
-          title: "Analytics Error",
-          description: errorMessage,
-          variant: "destructive",
-        })
-
-        // Clear analytics data on authentication errors
+        toast({ title: "Analytics Error", description: errorMessage, variant: "destructive" })
         if (
           error instanceof Error &&
           (error.message.includes("Invalid bearer token") ||
@@ -586,7 +709,7 @@ const OverviewPage = () => {
             error.message.includes("Outbound ID not found"))
         ) {
           setAnalyticsData(null)
-          clearAnalyticsStorage() // Add this line
+          clearAnalyticsStorage()
         }
       } finally {
         setAnalyticsLoading(false)
@@ -602,9 +725,10 @@ const OverviewPage = () => {
       if (campaign) {
         setSelectedCampaign(campaign)
         fetchAnalytics(campaign.outboundId, campaign.bearerToken)
+        fetchOutboundActive(campaign.outboundId, campaign.bearerToken) // check status on switch
       }
     },
-    [campaigns, fetchAnalytics],
+    [campaigns, fetchAnalytics, fetchOutboundActive],
   )
 
   // Manual refresh
@@ -616,19 +740,16 @@ const OverviewPage = () => {
       const updatedCampaign = campaignsData.find((c) => c.id === selectedCampaign.id)
       if (updatedCampaign) {
         await fetchAnalytics(updatedCampaign.outboundId, updatedCampaign.bearerToken)
+        await fetchOutboundActive(updatedCampaign.outboundId, updatedCampaign.bearerToken)
       }
     }
     setRefreshing(false)
-    toast({
-      title: "Refreshed",
-      description: "Data has been refreshed.",
-    })
-  }, [userEmail, refreshing, fetchCampaigns, selectedCampaign, fetchAnalytics, toast])
+    toast({ title: "Refreshed", description: "Data has been refreshed." })
+  }, [userEmail, refreshing, fetchCampaigns, selectedCampaign, fetchAnalytics, fetchOutboundActive, toast])
 
   // Initial data fetch
   useEffect(() => {
     if (isLoaded && userEmail) {
-      console.log("User Email:", userEmail)
       fetchCampaigns(userEmail).then((campaignsData) => {
         if (!campaignsData || campaignsData.length === 0) {
           console.log("No campaigns found for user:", userEmail)
@@ -637,7 +758,7 @@ const OverviewPage = () => {
     }
   }, [isLoaded, userEmail, fetchCampaigns])
 
-  // Load saved credentials from localStorage
+  // Load saved credentials from localStorage (and read status)
   useEffect(() => {
     if (isLoaded && campaigns.length > 0) {
       const savedCampaignId = getFromLocalStorage(STORAGE_KEYS.CAMPAIGN_ID)
@@ -645,7 +766,6 @@ const OverviewPage = () => {
       const savedOutboundId = getFromLocalStorage(STORAGE_KEYS.OUTBOUND_ID)
 
       if (savedCampaignId && savedBearerToken && savedOutboundId) {
-        // Find the campaign that matches saved credentials
         const matchingCampaign = campaigns.find(
           (campaign) =>
             campaign.id === savedCampaignId &&
@@ -656,17 +776,15 @@ const OverviewPage = () => {
         if (matchingCampaign && (!selectedCampaign || selectedCampaign.id !== matchingCampaign.id)) {
           setSelectedCampaign(matchingCampaign)
           fetchAnalytics(matchingCampaign.outboundId, matchingCampaign.bearerToken)
+          fetchOutboundActive(matchingCampaign.outboundId, matchingCampaign.bearerToken) // read status on load
         }
       }
     }
-  }, [isLoaded, campaigns, selectedCampaign, fetchAnalytics])
+  }, [isLoaded, campaigns, selectedCampaign, fetchAnalytics, fetchOutboundActive])
 
   const clearStoredCredentials = useCallback(() => {
     clearAnalyticsStorage()
-    toast({
-      title: "Cleared",
-      description: "Stored credentials have been cleared.",
-    })
+    toast({ title: "Cleared", description: "Stored credentials have been cleared." })
   }, [toast])
 
   // Loading state
@@ -700,7 +818,7 @@ const OverviewPage = () => {
             <p className="text-gray-500 mb-4">No analytics data available.</p>
             <Button
               onClick={() =>
-                selectedCampaign && fetchAnalytics(selectedCampaign.outboundId, selectedCampaign.bearerToken)
+                selectedCampaign && fetchAnalytics(selectedCampaign?.outboundId, selectedCampaign?.bearerToken)
               }
             >
               Load Analytics
@@ -954,28 +1072,26 @@ const OverviewPage = () => {
               <CardContent>
                 <div className="h-[250px] lg:h-[300px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={analyticsData.callsCostTimeLine}>
+                    <LineChart data={ourCostTimeline}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis
                         dataKey="date"
                         tickFormatter={(value) => new Date(value).toLocaleDateString()}
                         fontSize={12}
                       />
-                      <YAxis yAxisId="left" fontSize={12} tickFormatter={(value) => `$${value.toFixed(2)}`} />
+                      <YAxis yAxisId="left" fontSize={12} tickFormatter={(value: number) => `$${value.toFixed(2)}`} />
                       <YAxis
                         yAxisId="right"
                         orientation="right"
                         fontSize={12}
-                        tickFormatter={(value) => `$${value.toFixed(3)}`}
+                        tickFormatter={(value: number) => `$${value.toFixed(3)}`}
                       />
                       <Tooltip
                         labelFormatter={(value) => new Date(value).toLocaleDateString()}
-                        formatter={(value, name) => [
-                          name === "Total Price"
-                            ? `$${typeof value === "number" ? value.toFixed(2) : value}`
-                            : `$${typeof value === "number" ? value.toFixed(3) : value}`,
-                          name,
-                        ]}
+                        formatter={(value: number, name: string, entry: any) => {
+                          const isTotal = entry?.dataKey === "totalPrice"
+                          return [isTotal ? `$${value.toFixed(2)}` : `$${value.toFixed(3)}`, name]
+                        }}
                       />
                       <Line
                         yAxisId="left"
@@ -1111,10 +1227,7 @@ const OverviewPage = () => {
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="hourOfDay" fontSize={12} tickFormatter={(value) => `${value}:00`} />
                       <YAxis fontSize={12} />
-                      <Tooltip
-                        labelFormatter={(value) => `${value}:00`}
-                        formatter={(value) => [value.toLocaleString(), "Calls"]}
-                      />
+                      <Tooltip labelFormatter={(value) => `${value}:00`} formatter={(value) => [value.toLocaleString(), "Calls"]} />
                       <Bar dataKey="count" fill="#3b82f6" radius={[2, 2, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
@@ -1232,7 +1345,7 @@ const OverviewPage = () => {
                     key={item.id}
                     onClick={() => {
                       setActiveSection(item.id)
-                      setSidebarOpen(false) // Close mobile sidebar on selection
+                      setSidebarOpen(false)
                     }}
                     className={cn(
                       "w-full flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors",
@@ -1247,6 +1360,43 @@ const OverviewPage = () => {
                 )
               })}
             </div>
+
+            {/* Outbound On/Off Toggle (status-aware via GET /Outbound/{id} -> status 1/2) */}
+            <button
+              type="button"
+              onClick={handleCampaign}
+              role="switch"
+              aria-checked={!!isCampaignOn}
+              aria-label="Toggle outbound campaign"
+              disabled={isToggling || isCampaignChecking || !selectedCampaign || isCampaignOn === null}
+              className={cn(
+                "relative inline-flex h-7 w-24 items-center rounded-full bg-neutral-900 ring-1 ring-neutral-700 p-0.5 transition-colors focus:outline-none",
+                (isToggling || isCampaignChecking || !selectedCampaign || isCampaignOn === null) &&
+                  "opacity-60 cursor-not-allowed",
+              )}
+              title={
+                isCampaignOn === null
+                  ? "Status unknown"
+                  : isCampaignOn
+                  ? "Campaign is ON"
+                  : "Campaign is OFF"
+              }
+            >
+              {/* highlight slider */}
+              <span
+                className={`pointer-events-none absolute top-0.5 bottom-0.5 left-0.5 w-[calc(50%-4px)] rounded-full bg-neutral-600 transition-transform duration-200 ${
+                  !!isCampaignOn ? "translate-x-0" : "translate-x-[calc(100%+4px)]"
+                }`}
+                aria-hidden="true"
+              />
+              {/* labels */}
+              <span className={`z-10 flex-1 text-center text-sm ${!!isCampaignOn ? "text-white" : "text-neutral-400"}`}>
+                {isCampaignChecking ? "…" : "On"}
+              </span>
+              <span className={`z-10 flex-1 text-center text-sm ${!isCampaignOn ? "text-white" : "text-neutral-400"}`}>
+                {isCampaignChecking ? "…" : "Off"}
+              </span>
+            </button>
           </nav>
 
           {/* Action Buttons */}
@@ -1278,7 +1428,7 @@ const OverviewPage = () => {
               <Menu className="h-5 w-5" />
             </button>
             <h1 className="text-lg font-semibold text-gray-900">Analytics Dashboard</h1>
-            <div className="w-9" /> {/* Spacer for centering */}
+            <div className="w-9" />
           </div>
 
           {/* Content area */}

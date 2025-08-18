@@ -217,7 +217,7 @@ const Toaster = React.memo(() => {
 })
 Toaster.displayName = "Toaster"
 
-// Interfaces
+// ---------- Interfaces ----------
 interface UserData {
   id: string
   email: string
@@ -237,7 +237,8 @@ interface CallData {
   from: string
   to: string
   duration: number
-  tags: string[]
+  // NLPEarl Tags (list view)
+  tags?: string[]
 }
 
 interface CallsResponse {
@@ -280,12 +281,13 @@ interface CallDetails {
     name: string
     value: string | number | boolean | null
   }> | null
+  // NLPEarl Tags (details view)
   tags: string[] | null
   isCallTransferred: boolean
   overallSentiment: number
 }
 
-// LocalStorage utilities
+// ---------- LocalStorage utilities ----------
 const STORAGE_KEYS = {
   BEARER_TOKEN: "analytics_bearer_token",
   OUTBOUND_ID: "analytics_outbound_id",
@@ -328,11 +330,11 @@ const clearCallsStorage = () => {
   })
 }
 
-// API Base URLs
+// ---------- API Base URLs ----------
 const API_BASE_URL = "https://whitelabel-server.onrender.com/api/v1"
 const CALLS_API_BASE_URL = "https://api.nlpearl.ai/v1"
 
-// Helper functions
+// ---------- Helpers ----------
 const getDefaultDateRange = () => {
   const to = new Date()
   const from = new Date()
@@ -371,26 +373,26 @@ const getConversationStatusText = (status: number): string => {
 
 const getStatusBadgeColor = (status: number): string => {
   switch (status) {
-    case 4: // Completed
-    case 100: // Success
-    case 130: // Complete
+    case 4:
+    case 100:
+    case 130:
       return "bg-green-100 text-green-800"
-    case 6: // Failed
-    case 110: // Not Successful
-    case 500: // Error
+    case 6:
+    case 110:
+    case 500:
       return "bg-red-100 text-red-800"
-    case 3: // In Progress
-    case 20: // In Call Queue
+    case 3:
+    case 20:
       return "bg-blue-100 text-blue-800"
-    case 5: // Busy
-    case 7: // No Answer
-    case 150: // Unreachable
+    case 5:
+    case 7:
+    case 150:
       return "bg-purple-100 text-purple-800"
-    case 70: // Voice Mail Left
+    case 70:
       return "bg-yellow-100 text-yellow-800"
-    case 10: // Need Retry
+    case 10:
       return "bg-orange-100 text-orange-800"
-    case 8: // Canceled
+    case 8:
       return "bg-gray-100 text-gray-800"
     default:
       return "bg-gray-100 text-gray-800"
@@ -436,7 +438,55 @@ const getSentimentColor = (sentiment: number): string => {
   }
 }
 
-// Main Component
+// ---------- Tag helpers (deterministic colors & UI dots) ----------
+const TAG_COLOR_CLASSES = [
+  "bg-blue-500",
+  "bg-pink-400",
+  "bg-teal-500",
+  "bg-amber-400",
+  "bg-violet-500",
+  "bg-rose-500",
+  "bg-lime-500",
+  "bg-cyan-500",
+  "bg-indigo-500",
+  "bg-fuchsia-500",
+] as const
+
+const hashString = (s: string) => {
+  let h = 0
+  for (let i = 0; i < s.length; i++) h = (h << 5) - h + s.charCodeAt(i)
+  return Math.abs(h)
+}
+
+const tagBg = (tag: string) => TAG_COLOR_CLASSES[hashString(tag) % TAG_COLOR_CLASSES.length]
+
+const TagDots: React.FC<{ tags?: string[]; max?: number; className?: string }> = ({ tags = [], max = 3, className }) => {
+  if (!tags || tags.length === 0) return <span className="text-xs text-gray-400">—</span>
+  const shown = tags.slice(0, max)
+  const remaining = tags.length - shown.length
+  return (
+    <div className={cn("flex items-center -space-x-1.5", className)}>
+      {shown.map((t, i) => (
+        <div
+          key={`${t}-${i}`}
+          title={t}
+          aria-label={t}
+          className={cn(
+            "h-5 w-5 rounded-full border-2 border-white shadow-sm",
+            tagBg(t),
+          )}
+        />
+      ))}
+      {remaining > 0 && (
+        <div className="h-5 w-5 rounded-full border-2 border-white bg-gray-200 text-[10px] flex items-center justify-center font-medium">
+          +{remaining}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------- Main Component ----------
 const CallsPage = () => {
   const { user, isLoaded } = useUser()
   const { toast } = useToast()
@@ -454,6 +504,7 @@ const CallsPage = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [callDetails, setCallDetails] = useState<CallDetails | null>(null)
   const [callDetailsLoading, setCallDetailsLoading] = useState(false)
+  const [activeRightTab, setActiveRightTab] = useState<"transcript" | "events">("transcript") // layout-only tabs
 
   // Filters and pagination
   const [filters, setFilters] = useState<CallsFilters>({
@@ -472,7 +523,7 @@ const CallsPage = () => {
   const isConfigured = useMemo(() => {
     const savedBearerToken = getFromLocalStorage(STORAGE_KEYS.BEARER_TOKEN)
     const savedOutboundId = getFromLocalStorage(STORAGE_KEYS.OUTBOUND_ID)
-    return savedBearerToken && savedOutboundId
+    return !!(savedBearerToken && savedOutboundId)
   }, [])
 
   const canSubmit = useMemo(() => {
@@ -614,7 +665,7 @@ const CallsPage = () => {
     [filters, toast],
   )
 
-  // Fetch detailed call information
+  // Fetch detailed call information (includes tags from NLPEarl)
   const fetchCallDetails = useCallback(
     async (callId: string) => {
       const savedBearerToken = getFromLocalStorage(STORAGE_KEYS.BEARER_TOKEN)
@@ -801,6 +852,7 @@ const CallsPage = () => {
     (call: CallData) => {
       setSelectedCall(call)
       setSidebarOpen(true)
+      setActiveRightTab("transcript")
       setCallDetails(null) // Reset previous call details
       fetchCallDetails(call.id)
     },
@@ -828,7 +880,6 @@ const CallsPage = () => {
   // Initial data fetch
   useEffect(() => {
     if (isLoaded && user?.id) {
-      console.log("User ID:", user.id)
       fetchUserData(user.id)
     }
   }, [isLoaded, user?.id, fetchUserData])
@@ -880,7 +931,7 @@ const CallsPage = () => {
     <>
       <div className={`flex h-screen bg-gray-50 ${sidebarOpen ? "overflow-hidden" : ""}`}>
         {/* Main Content */}
-        <div className={`flex-1 flex flex-col ${sidebarOpen ? "lg:mr-96" : ""} transition-all duration-300`}>
+        <div className={`flex-1 flex flex-col ${sidebarOpen ? "lg:mr-[840px]" : ""} transition-all duration-300`}>
           {/* Header */}
           <div className="bg-white border-b border-gray-200 p-3 sm:p-4 lg:p-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
@@ -950,11 +1001,11 @@ const CallsPage = () => {
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-0">
                 <div className="flex items-center space-x-2 sm:space-x-3">
                   <div className="relative">
+                    <div className={`w-3 h-3 rounded-full ${isConfigured ? "bg-emerald-500" : "bg-amber-500"} shadow-lg`} />
                     <div
-                      className={`w-3 h-3 rounded-full ${isConfigured ? "bg-emerald-500" : "bg-amber-500"} shadow-lg`}
-                    />
-                    <div
-                      className={`absolute inset-0 w-3 h-3 rounded-full ${isConfigured ? "bg-emerald-500" : "bg-amber-500"} animate-ping opacity-20`}
+                      className={`absolute inset-0 w-3 h-3 rounded-full ${
+                        isConfigured ? "bg-emerald-500" : "bg-amber-500"
+                      } animate-ping opacity-20`}
                     />
                   </div>
                   <span className="text-xs sm:text-sm font-medium truncate">{userData.username}</span>
@@ -1062,6 +1113,8 @@ const CallsPage = () => {
                           <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">Duration</th>
                           <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">Status</th>
                           <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">Conversation</th>
+                          {/* NEW: Tags column */}
+                          <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">Tags</th>
                           <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">Actions</th>
                         </tr>
                       </thead>
@@ -1081,6 +1134,10 @@ const CallsPage = () => {
                             </td>
                             <td className="py-3 px-4">
                               <Badge variant="outline">{getConversationStatusText(call.conversationStatus)}</Badge>
+                            </td>
+                            {/* Tags dots */}
+                            <td className="py-3 px-4">
+                              <TagDots tags={call.tags ?? []} />
                             </td>
                             <td className="py-3 px-4">
                               <Button
@@ -1158,6 +1215,12 @@ const CallsPage = () => {
                               {getConversationStatusText(call.conversationStatus)}
                             </Badge>
                           </div>
+                          {/* Mobile tags */}
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs text-gray-500">Tags</span>
+                            <TagDots tags={call.tags ?? []} />
+                            
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -1191,9 +1254,7 @@ const CallsPage = () => {
                     <Edit className="w-8 h-8 text-slate-400" />
                   </div>
                   <h3 className="text-lg font-medium text-gray-900 mb-2">Setup Required</h3>
-                  <p className="text-gray-500 mb-4 text-sm sm:text-base">
-                    Please configure your API credentials to view calls
-                  </p>
+                  <p className="text-gray-500 mb-4 text-sm sm:text-base">Please configure your API credentials to view calls</p>
                   <Button
                     onClick={handleEditCredentials}
                     size="sm"
@@ -1245,16 +1306,17 @@ const CallsPage = () => {
           )}
         </div>
 
-        {/* Enhanced Sidebar */}
+        {/* Enhanced Sidebar (layout similar to screenshot; colors intentionally simple) */}
         {sidebarOpen && selectedCall && (
           <>
             {/* Mobile Overlay */}
-            <div className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden" onClick={closeSidebar} />
+            <div className="fixed inset-0 bg-black/40 z-40 lg:hidden" onClick={closeSidebar} />
             {/* Sidebar */}
-            <div className="fixed right-0 top-0 h-full w-full sm:w-96 lg:w-96 bg-white border-l border-gray-200 shadow-xl overflow-y-auto z-50 transform transition-transform duration-300">
-              <div className="p-3 sm:p-4 border-b border-gray-200 flex items-center justify-between bg-gradient-to-r from-blue-50 to-indigo-50">
-                <div className="flex items-center space-x-2 flex-1 min-w-0">
-                  <div className="flex items-center">
+            <div className="fixed right-0 top-0 h-full w-full lg:w-[840px] bg-white border-l border-gray-200 shadow-xl overflow-y-auto z-50">
+              {/* Top bar with route chips & close */}
+              <div className="p-3 sm:p-4 border-b border-gray-200 flex items-center justify-between">
+                <div className="flex items-center space-x-2 sm:space-x-3 overflow-hidden">
+                  <div className="flex items-center flex-shrink-0">
                     <div className="h-6 w-6 rounded-full bg-blue-500 flex items-center justify-center text-white text-xs">
                       {selectedCall.from?.slice(-2) || "??"}
                     </div>
@@ -1263,166 +1325,163 @@ const CallsPage = () => {
                       {selectedCall.to?.slice(-2) || "??"}
                     </div>
                   </div>
-                  <div className="text-sm font-medium truncate">
+                  <div className="truncate text-sm font-medium">
                     {selectedCall.from} → {selectedCall.to}
                   </div>
+                  <Badge className={cn(getStatusBadgeColor(selectedCall.status), "truncate max-w-[160px]")}>
+                    {getStatusText(selectedCall.status)}
+                  </Badge>
                 </div>
                 <Button variant="ghost" size="sm" onClick={closeSidebar} className="ml-2 flex-shrink-0">
                   <X className="h-4 w-4" />
                 </Button>
               </div>
-              <div className="p-3 sm:p-4">
-                {callDetailsLoading ? (
-                  <div className="flex items-center justify-center py-8">
-                    <div className="text-center space-y-4">
-                      <div className="relative">
-                        <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto"></div>
+
+              {/* Content grid: left info & right transcript/event log (like screenshot layout) */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 p-3 sm:p-4">
+                {/* LEFT: Info */}
+                <div className="space-y-4">
+                  {/* Faux top tabs to match layout */}
+               
+
+                  {/* Tags row (just dots for layout parity) */}
+                  <div>
+  <h3 className="text-sm font-semibold mb-2 text-slate-800">Tags</h3>
+  <div className="flex flex-wrap gap-2">
+    {(callDetails?.tags ?? selectedCall?.tags ?? []).map((tag, index) => (
+      <Badge key={index} variant="secondary" className="px-2 py-1 text-xs">
+        {tag}
+      </Badge>
+    ))}
+  </div>
+</div>
+
+                  {/* Summary Section */}
+                  {callDetails?.summary && (
+                    <div>
+                      <h3 className="text-sm font-semibold mb-2 text-slate-800">Summary</h3>
+                      <p className="text-sm text-gray-700 bg-gradient-to-r from-slate-50 to-slate-100 p-3 rounded-lg leading-relaxed border border-slate-200">
+                        {callDetails.summary}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Call Details table-like */}
+                  <div>
+                    <h3 className="text-sm font-semibold mb-3 text-slate-800">Call Details</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 bg-white border rounded-lg overflow-hidden">
+                      <div className="px-3 py-2 text-xs sm:text-sm bg-gray-50 border-b sm:border-b-0 sm:border-r">Lead Name</div>
+                      <div className="px-3 py-2 text-xs sm:text-sm sm:col-span-2 border-b">
+                        {callDetails?.name || "—"}
                       </div>
-                      <div className="space-y-2">
-                        <h3 className="text-sm font-semibold text-slate-700">Loading Call Details</h3>
-                        <p className="text-xs text-slate-500">Fetching detailed information...</p>
+
+                      <div className="px-3 py-2 text-xs sm:text-sm bg-gray-50 sm:border-r">Duration</div>
+                      <div className="px-3 py-2 text-xs sm:text-sm sm:col-span-2 border-t sm:border-t-0">
+                        {callDetails ? formatDuration(callDetails.duration) : formatDuration(selectedCall.duration)}
+                      </div>
+
+                      <div className="px-3 py-2 text-xs sm:text-sm bg-gray-50 border-t sm:border-l-0 sm:border-r">Status</div>
+                      <div className="px-3 py-2 text-xs sm:text-sm sm:col-span-2 border-t">
+                        <Badge className={getStatusBadgeColor(callDetails?.status ?? selectedCall.status)}>
+                          {getStatusText(callDetails?.status ?? selectedCall.status)}
+                        </Badge>
+                      </div>
+
+                      <div className="px-3 py-2 text-xs sm:text-sm bg-gray-50 border-t sm:border-r">Sentiment</div>
+                      <div className="px-3 py-2 text-xs sm:text-sm sm:col-span-2 border-t">
+                        <span
+                          className={cn(
+                            "font-medium",
+                            getSentimentColor(callDetails?.overallSentiment ?? 3),
+                          )}
+                        >
+                          {getSentimentText(callDetails?.overallSentiment ?? 3)}
+                        </span>
+                      </div>
+
+                      <div className="px-3 py-2 text-xs sm:text-sm bg-gray-50 border-t sm:border-r">Start Time</div>
+                      <div className="px-3 py-2 text-xs sm:text-sm sm:col-span-2 border-t">
+                        {formatDate(callDetails?.startTime ?? selectedCall.startTime)}
+                      </div>
+
+                      <div className="px-3 py-2 text-xs sm:text-sm bg-gray-50 border-t sm:border-r">Conversation</div>
+                      <div className="px-3 py-2 text-xs sm:text-sm sm:col-span-2 border-t">
+                        <Badge variant="outline">
+                          {getConversationStatusText(callDetails?.conversationStatus ?? selectedCall.conversationStatus)}
+                        </Badge>
                       </div>
                     </div>
                   </div>
-                ) : callDetails ? (
-                  <div className="space-y-4 sm:space-y-6">
-                    {/* Summary Section */}
-                    {callDetails.summary && (
-                      <div>
-                        <h3 className="text-sm font-semibold mb-2 text-slate-800">Summary</h3>
-                        <p className="text-sm text-gray-700 bg-gradient-to-r from-slate-50 to-slate-100 p-3 rounded-lg leading-relaxed border border-slate-200">
-                          {callDetails.summary}
-                        </p>
-                      </div>
-                    )}
 
-                    {/* Call Details */}
+                  {/* Variables / Collected Info */}
+                  {callDetails?.collectedInfo && callDetails.collectedInfo.length > 0 && (
                     <div>
-                      <h3 className="text-sm font-semibold mb-3 text-slate-800">Call Details</h3>
-                      <div className="space-y-2">
-                        {callDetails.name && (
-                          <div className="flex flex-col sm:flex-row sm:justify-between gap-1 sm:gap-0">
-                            <span className="text-sm text-gray-600">Name</span>
-                            <span className="text-sm font-medium">{callDetails.name}</span>
+                      <h3 className="text-sm font-semibold mb-3 text-slate-800">Variables</h3>
+                      <div className="divide-y border rounded-lg">
+                        {callDetails.collectedInfo.map((info) => (
+                          <div key={info.id} className="grid grid-cols-1 sm:grid-cols-3">
+                            <div className="px-3 py-2 text-xs sm:text-sm bg-gray-50">{info.name}</div>
+                            <div className="px-3 py-2 text-xs sm:text-sm sm:col-span-2 break-words">
+                              {String(info.value)}
+                            </div>
                           </div>
-                        )}
-                        <div className="flex flex-col sm:flex-row sm:justify-between gap-1 sm:gap-0">
-                          <span className="text-sm text-gray-600">Duration</span>
-                          <span className="text-sm font-medium">{formatDuration(callDetails.duration)}</span>
-                        </div>
-                        <div className="flex flex-col sm:flex-row sm:justify-between gap-1 sm:gap-0">
-                          <span className="text-sm text-gray-600">Start Time</span>
-                          <span className="text-sm">{formatDate(callDetails.startTime)}</span>
-                        </div>
-                        <div className="flex flex-col sm:flex-row sm:justify-between gap-1 sm:gap-0">
-                          <span className="text-sm text-gray-600">Status</span>
-                          <Badge className={getStatusBadgeColor(callDetails.status)}>
-                            {getStatusText(callDetails.status)}
-                          </Badge>
-                        </div>
-                        <div className="flex flex-col sm:flex-row sm:justify-between gap-1 sm:gap-0">
-                          <span className="text-sm text-gray-600">Conversation</span>
-                          <Badge variant="outline">{getConversationStatusText(callDetails.conversationStatus)}</Badge>
-                        </div>
-                        <div className="flex flex-col sm:flex-row sm:justify-between gap-1 sm:gap-0">
-                          <span className="text-sm text-gray-600">Sentiment</span>
-                          <span className={`text-sm font-medium ${getSentimentColor(callDetails.overallSentiment)}`}>
-                            {getSentimentText(callDetails.overallSentiment)}
-                          </span>
-                        </div>
-                        {callDetails.isCallTransferred && (
-                          <div className="flex flex-col sm:flex-row sm:justify-between gap-1 sm:gap-0">
-                            <span className="text-sm text-gray-600">Transferred</span>
-                            <Badge variant="secondary" className="bg-blue-100 text-blue-800 w-fit">
-                              Yes
-                            </Badge>
-                          </div>
-                        )}
-                        {callDetails.relatedId && (
-                          <div className="flex flex-col sm:flex-row sm:justify-between gap-1 sm:gap-0">
-                            <span className="text-sm text-gray-600">Related ID</span>
-                            <span className="text-xs font-mono text-gray-500 break-all">{callDetails.relatedId}</span>
-                          </div>
-                        )}
+                        ))}
                       </div>
                     </div>
+                  )}
+                </div>
 
-                    {/* Collected Information */}
-                    {callDetails.collectedInfo && callDetails.collectedInfo.length > 0 && (
-                      <div>
-                        <h3 className="text-sm font-semibold mb-3 text-slate-800">Collected Information</h3>
-                        <div className="space-y-2">
-                          {callDetails.collectedInfo.map((info) => (
-                            <div key={info.id} className="flex flex-col sm:flex-row sm:justify-between gap-1 sm:gap-0">
-                              <span className="text-sm text-gray-600">{info.name}</span>
-                              <span className="text-sm font-medium break-words">{String(info.value)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                {/* RIGHT: Transcript / Event Log with top tabs */}
+                <div className="">
+                  <div className="flex items-center gap-2 mb-3">
+                    <button
+                      onClick={() => setActiveRightTab("transcript")}
+                      className={cn(
+                        "text-xs sm:text-sm px-3 py-1.5 rounded-md border",
+                        activeRightTab === "transcript" ? "bg-white shadow-sm" : "bg-white/60",
+                      )}
+                    >
+                      Transcript
+                    </button>
+                    <button
+                      onClick={() => setActiveRightTab("events")}
+                      className={cn(
+                        "text-xs sm:text-sm px-3 py-1.5 rounded-md border",
+                        activeRightTab === "events" ? "bg-white shadow-sm" : "bg-white/60",
+                      )}
+                    >
+                      Event Log
+                    </button>
+                  </div>
 
-                    {/* Tags */}
-                    {callDetails.tags && callDetails.tags.length > 0 && (
-                      <div>
-                        <h3 className="text-sm font-semibold mb-2 text-slate-800">Tags</h3>
-                        <div className="flex flex-wrap gap-1">
-                          {callDetails.tags.map((tag, index) => (
-                            <Badge key={index} variant="secondary" className="text-xs">
-                              {tag}
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Recording */}
-                    {callDetails.recording && (
-                      <div>
-                        <h3 className="text-sm font-semibold mb-2 text-slate-800">Recording</h3>
-                        <div className="space-y-2">
-                          <audio controls className="w-full">
-                            <source src={callDetails.recording} type="audio/mpeg" />
-                            Your browser does not support the audio element.
-                          </audio>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="w-full bg-transparent text-sm transition-all duration-200 hover:shadow-md"
-                            onClick={() => window.open(callDetails.recording!, "_blank")}
-                          >
-                            Download Recording
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-
+                  <div className="space-y-4">
                     {/* Transcript */}
-                    {callDetails.transcript && callDetails.transcript.length > 0 && (
-                      <div>
-                        <h3 className="text-sm font-semibold mb-3 text-slate-800">Transcript</h3>
-                        <div className="bg-gradient-to-br from-slate-50 to-slate-100 rounded-lg p-3 sm:p-4 max-h-64 sm:max-h-96 overflow-y-auto border border-slate-200">
-                          {callDetails.transcript.map((message, index) => {
-                            // Role 1 = AI/Agent, Role 2 = User/Human - REVERSED
+                    {activeRightTab === "transcript" && (
+                      <div className="bg-gradient-to-br from-slate-50 to-slate-100 rounded-lg p-3 sm:p-4 max-h-[520px] overflow-y-auto border border-slate-200">
+                        {callDetailsLoading && (
+                          <div className="flex items-center justify-center py-8">
+                            <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+                          </div>
+                        )}
+
+                        {!callDetailsLoading && callDetails?.transcript && callDetails.transcript.length > 0 ? (
+                          callDetails.transcript.map((message, index) => {
                             const isAI = message.role === 1
                             const isUser = message.role === 2
                             const isSystem = message.role === 3
 
-                            // Define gradient backgrounds for different roles (REVERSED)
-                            let bgGradient = "bg-gradient-to-r from-gray-400 to-gray-500" // default/unknown
+                            let bgGradient = "bg-gradient-to-r from-gray-400 to-gray-500"
                             let textColor = "text-white"
                             let roleLabel = "Unknown"
 
                             if (isAI) {
-                              // AI gets vibrant blue-purple gradient
                               bgGradient = "bg-gradient-to-br from-blue-500 via-purple-500 to-indigo-600"
                               textColor = "text-white"
-                              roleLabel = "User" // Purple messages show as User
+                              roleLabel = "User"
                             } else if (isUser) {
-                              // User gets emerald-teal gradient
                               bgGradient = "bg-gradient-to-br from-emerald-500 via-green-500 to-teal-600"
                               textColor = "text-white"
-                              roleLabel = "Agent" // Green messages show as Agent
+                              roleLabel = "Agent"
                             } else if (isSystem) {
                               bgGradient = "bg-gradient-to-br from-violet-500 via-purple-500 to-fuchsia-600"
                               textColor = "text-white"
@@ -1431,20 +1490,21 @@ const CallsPage = () => {
 
                             return (
                               <div key={index} className="mb-3 sm:mb-4">
-                                {/* Role Label and Timestamp Header */}
                                 <div className="flex items-center justify-between mb-2">
                                   <span className="text-xs font-medium text-gray-600">{roleLabel}</span>
                                 </div>
-                                {/* Message Content with Transparent Gradient Background */}
-                                <div
-                                  className={`${bgGradient} ${textColor} px-3 sm:px-4 py-2 sm:py-3 rounded-lg shadow-sm bg-opacity-90 backdrop-blur-sm`}
-                                >
+                                <div className={`${bgGradient} ${textColor} px-3 sm:px-4 py-2 sm:py-3 rounded-lg shadow-sm`}>
                                   <p className="text-sm leading-relaxed break-words">{message.content}</p>
                                 </div>
                               </div>
                             )
-                          })}
-                          {/* Conversation Stats */}
+                          })
+                        ) : (
+                          !callDetailsLoading && <div className="text-sm text-gray-500">No transcript available.</div>
+                        )}
+
+                        {/* Conversation Stats */}
+                        {!callDetailsLoading && callDetails?.transcript && callDetails.transcript.length > 0 && (
                           <div className="mt-4 pt-3 border-t border-gray-200">
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4 text-xs">
                               <div className="flex items-center gap-2">
@@ -1471,31 +1531,57 @@ const CallsPage = () => {
                               </div>
                             </div>
                           </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Event Log placeholder for layout parity */}
+                    {activeRightTab === "events" && (
+                      <div className="bg-white border rounded-lg p-4 text-sm text-gray-500">
+                        Event Log data is not available for this call.
+                      </div>
+                    )}
+
+                    {/* Recording (kept after the tabs like in screenshot bottom player) */}
+                    {callDetails?.recording && (
+                      <div>
+                        <h3 className="text-sm font-semibold mb-2 text-slate-800">Recording</h3>
+                        <div className="space-y-2">
+                          <audio controls className="w-full">
+                            <source src={callDetails.recording} type="audio/mpeg" />
+                            Your browser does not support the audio element.
+                          </audio>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full bg-transparent text-sm transition-all duration-200 hover:shadow-md"
+                            onClick={() => window.open(callDetails.recording!, "_blank")}
+                          >
+                            Download Recording
+                          </Button>
                         </div>
                       </div>
                     )}
                   </div>
-                ) : (
-                  <div className="text-center py-8">
-                    <Phone className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                    <h3 className="text-sm font-medium text-gray-900 mb-2">Call Details</h3>
-                    <p className="text-sm text-gray-500 mb-4">
-                      {isConfigured ? "Failed to load call details" : "Authentication required to view call details"}
-                    </p>
-                    {isConfigured && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => fetchCallDetails(selectedCall.id)}
-                        className="transition-all duration-200 hover:shadow-md"
-                      >
-                        <RefreshCw className="h-4 w-4 mr-2" />
-                        Retry
-                      </Button>
-                    )}
-                  </div>
-                )}
+                </div>
               </div>
+
+              {/* Loading state when opening sidebar before details arrive */}
+              {!callDetails && callDetailsLoading && (
+                <div className="p-6">
+                  <div className="flex items-center justify-center py-8">
+                    <div className="text-center space-y-4">
+                      <div className="relative">
+                        <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto"></div>
+                      </div>
+                      <div className="space-y-2">
+                        <h3 className="text-sm font-semibold text-slate-700">Loading Call Details</h3>
+                        <p className="text-xs text-slate-500">Fetching detailed information...</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </>
         )}

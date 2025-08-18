@@ -1,4 +1,5 @@
 "use client";
+
 import { HeroSectionOne } from "@/components/hero";
 import {
   Navbar,
@@ -16,41 +17,37 @@ import Link from "next/link";
 import { useState } from "react";
 
 export default function NavbarDemo() {
-
-  // NavItems configuration Json
   const navItems = [
-    {
-      name: "Features",
-      link: "#features",
-    },
-    {
-      name: "Pricing",
-      link: "#pricing",
-    },
-    {
-      name: "Contact",
-      link: "#contact",
-    },
+    { name: "Features", link: "#features" },
+    { name: "Pricing", link: "#pricing" },
+    { name: "Contact", link: "#contact" },
   ];
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-
-  const {isSignedIn} = useAuth();
+  const { isSignedIn } = useAuth();
 
   return (
     <div className="relative w-full">
       <Navbar>
-        {/* Desktop Navigation */}
+        {/* Desktop */}
         <NavBody>
           <NavbarLogo />
           <NavItems items={navItems} />
           <div className="flex items-center gap-4">
-            { !isSignedIn && <NavbarButton variant="primary"><SignInButton />  </NavbarButton>}
-            {isSignedIn &&  <Link href={'/dashboard/outbound'} ><NavbarButton variant="primary">Dashboard</NavbarButton></Link>}
+            {!isSignedIn ? (
+              // Use new v6 redirect props
+              <SignInButton mode="modal" forceRedirectUrl="/dashboard/outbound">
+                <NavbarButton variant="primary">Login</NavbarButton>
+              </SignInButton>
+            ) : (
+              <Link href="/dashboard/outbound">
+                <NavbarButton variant="primary">Dashboard</NavbarButton>
+              </Link>
+            )}
           </div>
         </NavBody>
 
-        {/* Mobile Navigation */}
+        {/* Mobile */}
         <MobileNav>
           <MobileNavHeader>
             <NavbarLogo />
@@ -60,9 +57,7 @@ export default function NavbarDemo() {
             />
           </MobileNavHeader>
 
-          <MobileNavMenu
-            isOpen={isMobileMenuOpen}
-          >
+          <MobileNavMenu isOpen={isMobileMenuOpen}>
             {navItems.map((item, idx) => (
               <a
                 key={`mobile-link-${idx}`}
@@ -73,14 +68,30 @@ export default function NavbarDemo() {
                 <span className="block">{item.name}</span>
               </a>
             ))}
+
             <div className="flex w-full flex-col gap-4">
-              <NavbarButton
-                onClick={() => setIsMobileMenuOpen(false)}
-                variant="primary"
-                className="w-full"
-              >
-                Login
-              </NavbarButton>
+              {!isSignedIn ? (
+                <SignInButton mode="modal" forceRedirectUrl="/dashboard/outbound">
+                  <NavbarButton
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    variant="primary"
+                    className="w-full"
+                  >
+                    Login
+                  </NavbarButton>
+                </SignInButton>
+              ) : (
+                <Link
+                  href="/dashboard/outbound"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="w-full"
+                >
+                  <NavbarButton variant="primary" className="w-full">
+                    Dashboard
+                  </NavbarButton>
+                </Link>
+              )}
+
               <NavbarButton
                 onClick={() => setIsMobileMenuOpen(false)}
                 variant="primary"
@@ -92,14 +103,8 @@ export default function NavbarDemo() {
           </MobileNavMenu>
         </MobileNav>
       </Navbar>
-    
+
       <HeroSectionOne />
-      {/* Navbar */}
     </div>
   );
 }
-
-
-
-
-

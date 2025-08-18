@@ -10,6 +10,7 @@ import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
 import { Sidebar, SidebarBody, SidebarLink } from "@/components/ui/sidebar";
 import { UserButton } from "@clerk/nextjs";
+import Link from "next/link";
 
 
 
@@ -19,20 +20,20 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const links = [
-    {
-      label: "Dashboard",
-      href: "/dashboard",
-      icon: (
-        <IconDashboardFilled className="h-5 w-5 shrink-0 text-neutral-700 dark:text-neutral-200" />
-      ),
-    },
-    {
-      label: "Inbound",
-      href: "/dashboard/inbound",
-      icon: (
-        <IconDropCircle className="h-5 w-5 shrink-0 text-neutral-700 dark:text-neutral-200" />
-      ),
-    },
+    // {
+    //   label: "Dashboard",
+    //   href: "/dashboard",
+    //   icon: (
+    //     <IconDashboardFilled className="h-5 w-5 shrink-0 text-neutral-700 dark:text-neutral-200" />
+    //   ),
+    // },
+    // {
+    //   label: "Inbound",
+    //   href: "/dashboard/inbound",
+    //   icon: (
+    //     <IconDropCircle className="h-5 w-5 shrink-0 text-neutral-700 dark:text-neutral-200" />
+    //   ),
+    // },
     {
       label: "Outbound",
       href: "/dashboard/outbound",
@@ -70,8 +71,8 @@ export default function DashboardLayout({
 }
 const Logo = () => {
   return (
-    <a
-      href="#"
+    <Link
+      href="/"
       className="relative z-20 flex items-center space-x-2 py-1 text-sm font-normal text-black"
     >
       <div className="h-5 w-6 shrink-0 rounded-tl-lg rounded-tr-sm rounded-br-lg rounded-bl-sm bg-black dark:bg-white" />
@@ -82,7 +83,7 @@ const Logo = () => {
       >
         Digital coach
       </motion.span>
-    </a>
+    </Link>
   );
 };
  const LogoIcon = () => {

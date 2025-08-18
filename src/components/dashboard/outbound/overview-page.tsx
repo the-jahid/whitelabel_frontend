@@ -33,6 +33,7 @@ import {
   Pie,
   Cell,
   Tooltip,
+  type TooltipProps,
 } from "recharts"
 import * as React from "react"
 import * as ToastPrimitives from "@radix-ui/react-toast"
@@ -371,7 +372,8 @@ const ANALYTICS_API_BASE_URL = "https://api.nlpearl.ai/v1"
 
 // ✅ Custom pricing (YOUR rates)
 const OUR_CALL_RATE_PER_MIN = 0.4 // $ per minute
-const OUR_SMS_RATE = 0.16 // $ per SMS (not used in this chart)
+const OUR_SMS_RATE = 0.16 as const
+void OUR_SMS_RATE
 
 // Helper function to get date range (last 30 days by default)
 const getDefaultDateRange = () => {
@@ -402,6 +404,14 @@ const sidebarItems = [
   { id: "events", label: "Events", icon: Calendar },
 ]
 
+// Recharts tooltip formatter for the cost chart, strongly typed
+const priceTooltipFormatter: NonNullable<TooltipProps<number, string>["formatter"]> = (value, name, item) => {
+  const dataKey = (item as { dataKey?: string } | undefined)?.dataKey
+  const isTotal = dataKey === "totalPrice"
+  const formatted = isTotal ? `$${(value as number).toFixed(2)}` : `$${(value as number).toFixed(3)}`
+  return [formatted, String(name)]
+}
+
 // Main Component
 const OverviewPage = () => {
   const { user, isLoaded } = useUser()
@@ -417,13 +427,11 @@ const OverviewPage = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   // Active-state + toggling state
-  // null = unknown; true = ON; false = OFF
   const [isCampaignOn, setIsCampaignOn] = useState<boolean | null>(null)
   const [isToggling, setIsToggling] = useState(false)
   const [isCampaignChecking, setIsCampaignChecking] = useState(false)
 
-  // ---- STATUS CHECK (required) ----
-  // Use GET /Outbound/{id}, where status: 1 => ON, 2 => OFF
+  // ---- STATUS CHECK ----
   const fetchOutboundActive = useCallback(
     async (outboundId: string, bearerToken: string) => {
       setIsCampaignChecking(true)
@@ -474,7 +482,7 @@ const OverviewPage = () => {
     [toast],
   )
 
-  // ---- TOGGLE (unchanged) ----
+  // ---- TOGGLE ----
   const toggleOutboundActive = useCallback(
     async (outboundId: string, bearerToken: string, isActive: boolean) => {
       const response = await fetch(`${ANALYTICS_API_BASE_URL}/Outbound/${outboundId}/Active`, {
@@ -638,7 +646,7 @@ const OverviewPage = () => {
         if (showLoader) setLoading(false)
       }
     },
-    [toast,  fetchOutboundActive],
+    [toast, fetchOutboundActive],
   )
 
   // Fetch analytics data
@@ -725,7 +733,7 @@ const OverviewPage = () => {
       if (campaign) {
         setSelectedCampaign(campaign)
         fetchAnalytics(campaign.outboundId, campaign.bearerToken)
-        fetchOutboundActive(campaign.outboundId, campaign.bearerToken) // check status on switch
+        fetchOutboundActive(campaign.outboundId, campaign.bearerToken)
       }
     },
     [campaigns, fetchAnalytics, fetchOutboundActive],
@@ -758,7 +766,7 @@ const OverviewPage = () => {
     }
   }, [isLoaded, userEmail, fetchCampaigns])
 
-  // Load saved credentials from localStorage (and read status)
+  // Load saved credentials (and read status)
   useEffect(() => {
     if (isLoaded && campaigns.length > 0) {
       const savedCampaignId = getFromLocalStorage(STORAGE_KEYS.CAMPAIGN_ID)
@@ -776,7 +784,7 @@ const OverviewPage = () => {
         if (matchingCampaign && (!selectedCampaign || selectedCampaign.id !== matchingCampaign.id)) {
           setSelectedCampaign(matchingCampaign)
           fetchAnalytics(matchingCampaign.outboundId, matchingCampaign.bearerToken)
-          fetchOutboundActive(matchingCampaign.outboundId, matchingCampaign.bearerToken) // read status on load
+          fetchOutboundActive(matchingCampaign.outboundId, matchingCampaign.bearerToken)
         }
       }
     }
@@ -1086,12 +1094,9 @@ const OverviewPage = () => {
                         fontSize={12}
                         tickFormatter={(value: number) => `$${value.toFixed(3)}`}
                       />
-                      <Tooltip
+                      <Tooltip<number, string>
                         labelFormatter={(value) => new Date(value).toLocaleDateString()}
-                        formatter={(value: number, name: string, entry: any) => {
-                          const isTotal = entry?.dataKey === "totalPrice"
-                          return [isTotal ? `$${value.toFixed(2)}` : `$${value.toFixed(3)}`, name]
-                        }}
+                        formatter={priceTooltipFormatter}
                       />
                       <Line
                         yAxisId="left"
@@ -1323,6 +1328,39 @@ const OverviewPage = () => {
                   ))}
                 </SelectContent>
               </Select>
+                <button
+              type="button"
+              onClick={handleCampaign}
+              role="switch"
+              aria-checked={!!isCampaignOn}
+              aria-label="Toggle outbound campaign"
+              disabled={isToggling || isCampaignChecking || !selectedCampaign || isCampaignOn === null}
+              className={cn(
+                "relative inline-flex h-7 w-24 items-center my-4 rounded-full bg-neutral-900 ring-1 ring-neutral-700 p-0.5 transition-colors focus:outline-none",
+                (isToggling || isCampaignChecking || !selectedCampaign || isCampaignOn === null) &&
+                  "opacity-60 cursor-not-allowed",
+              )}
+              title={
+                isCampaignOn === null
+                  ? "Status unknown"
+                  : isCampaignOn
+                  ? "Campaign is ON"
+                  : "Campaign is OFF"
+              }
+            >
+              <span
+                className={`pointer-events-none absolute top-0.5 bottom-0.5 left-0.5 w-[calc(50%-4px)] rounded-full bg-neutral-600 transition-transform duration-200 ${
+                  !!isCampaignOn ? "translate-x-0" : "translate-x-[calc(100%+4px)]"
+                }`}
+                aria-hidden="true"
+              />
+              <span className={`z-10 flex-1 text-center text-sm ${!!isCampaignOn ? "text-white" : "text-neutral-400"}`}>
+                {isCampaignChecking ? "…" : "On"}
+              </span>
+              <span className={`z-10 flex-1 text-center text-sm ${!isCampaignOn ? "text-white" : "text-neutral-400"}`}>
+                {isCampaignChecking ? "…" : "Off"}
+              </span>
+            </button>
             </div>
           ) : (
             <div className="p-4 lg:p-6 border-b border-gray-200">
@@ -1361,42 +1399,8 @@ const OverviewPage = () => {
               })}
             </div>
 
-            {/* Outbound On/Off Toggle (status-aware via GET /Outbound/{id} -> status 1/2) */}
-            <button
-              type="button"
-              onClick={handleCampaign}
-              role="switch"
-              aria-checked={!!isCampaignOn}
-              aria-label="Toggle outbound campaign"
-              disabled={isToggling || isCampaignChecking || !selectedCampaign || isCampaignOn === null}
-              className={cn(
-                "relative inline-flex h-7 w-24 items-center rounded-full bg-neutral-900 ring-1 ring-neutral-700 p-0.5 transition-colors focus:outline-none",
-                (isToggling || isCampaignChecking || !selectedCampaign || isCampaignOn === null) &&
-                  "opacity-60 cursor-not-allowed",
-              )}
-              title={
-                isCampaignOn === null
-                  ? "Status unknown"
-                  : isCampaignOn
-                  ? "Campaign is ON"
-                  : "Campaign is OFF"
-              }
-            >
-              {/* highlight slider */}
-              <span
-                className={`pointer-events-none absolute top-0.5 bottom-0.5 left-0.5 w-[calc(50%-4px)] rounded-full bg-neutral-600 transition-transform duration-200 ${
-                  !!isCampaignOn ? "translate-x-0" : "translate-x-[calc(100%+4px)]"
-                }`}
-                aria-hidden="true"
-              />
-              {/* labels */}
-              <span className={`z-10 flex-1 text-center text-sm ${!!isCampaignOn ? "text-white" : "text-neutral-400"}`}>
-                {isCampaignChecking ? "…" : "On"}
-              </span>
-              <span className={`z-10 flex-1 text-center text-sm ${!isCampaignOn ? "text-white" : "text-neutral-400"}`}>
-                {isCampaignChecking ? "…" : "Off"}
-              </span>
-            </button>
+            {/* Outbound On/Off Toggle */}
+          
           </nav>
 
           {/* Action Buttons */}
@@ -1452,8 +1456,3 @@ const OverviewPage = () => {
 }
 
 export default OverviewPage
-
-
-
-
-

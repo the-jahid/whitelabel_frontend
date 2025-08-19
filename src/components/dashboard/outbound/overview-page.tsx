@@ -41,7 +41,7 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { X } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-// Toast Components
+/* ---------------- Toast ---------------- */
 const ToastProvider = ToastPrimitives.Provider
 
 const ToastViewport = React.forwardRef<
@@ -68,9 +68,7 @@ const toastVariants = cva(
         destructive: "destructive border-destructive bg-destructive text-destructive-foreground",
       },
     },
-    defaultVariants: {
-      variant: "default",
-    },
+    defaultVariants: { variant: "default" },
   },
 )
 
@@ -116,7 +114,6 @@ const ToastDescription = React.forwardRef<
 ))
 ToastDescription.displayName = ToastPrimitives.Description.displayName
 
-// Toast Hook
 const TOAST_LIMIT = 3
 const TOAST_REMOVE_DELAY = 5000
 
@@ -130,7 +127,6 @@ type ToasterToast = {
 }
 
 let count = 0
-
 function genId() {
   count = (count + 1) % Number.MAX_SAFE_INTEGER
   return count.toString()
@@ -147,7 +143,6 @@ interface State {
 }
 
 const toastTimeouts = new Map<string, ReturnType<typeof setTimeout>>()
-
 const addToRemoveQueue = (toastId: string) => {
   if (toastTimeouts.has(toastId)) return
   const timeout = setTimeout(() => {
@@ -165,11 +160,8 @@ const reducer = (state: State, action: Action): State => {
       return { ...state, toasts: state.toasts.map((t) => (t.id === action.toast.id ? { ...t, ...action.toast } : t)) }
     case "DISMISS_TOAST": {
       const { toastId } = action
-      if (toastId) {
-        addToRemoveQueue(toastId)
-      } else {
-        state.toasts.forEach((toast) => addToRemoveQueue(toast.id))
-      }
+      if (toastId) addToRemoveQueue(toastId)
+      else state.toasts.forEach((toast) => addToRemoveQueue(toast.id))
       return {
         ...state,
         toasts: state.toasts.map((t) => (t.id === toastId || toastId === undefined ? { ...t, open: false } : t)),
@@ -237,7 +229,7 @@ const Toaster = React.memo(() => {
 })
 Toaster.displayName = "Toaster"
 
-// Interfaces
+/* --------------- Types --------------- */
 interface CampaignData {
   id: string
   campaignName: string
@@ -285,29 +277,11 @@ interface AnalyticsData {
     error: number
     date: string
   }>
-  callsAverageTimeLine: Array<{
-    date: string
-    averageCallDuration: number
-  }>
-  callsCostTimeLine: Array<{
-    date: string
-    totalPrice: number
-    averageCostPerCall: number
-  }>
-  callsPickupRateTimeLine: Array<{
-    date: string
-    pickupRatePercentage: number
-  }>
-  callsSuccessRateTimeLine: Array<{
-    date: string
-    successRatePercentage: number
-  }>
-  callLabelCount: Array<{
-    id: string
-    name: string
-    color: string
-    count: number
-  }>
+  callsAverageTimeLine: Array<{ date: string; averageCallDuration: number }>
+  callsCostTimeLine: Array<{ date: string; totalPrice: number; averageCostPerCall: number }>
+  callsPickupRateTimeLine: Array<{ date: string; pickupRatePercentage: number }>
+  callsSuccessRateTimeLine: Array<{ date: string; successRatePercentage: number }>
+  callLabelCount: Array<{ id: string; name: string; color: string; count: number }>
   callEventsCounts: {
     takeMessageCount: number
     smsSentCount: number
@@ -315,14 +289,10 @@ interface AnalyticsData {
     calendarBookedCount: number
     emailSentCount: number
   }
-  callsByHourDayOfWeeks: Array<{
-    hourOfDay: number
-    dayOfWeek: number
-    count: number
-  }>
+  callsByHourDayOfWeeks: Array<{ hourOfDay: number; dayOfWeek: number; count: number }>
 }
 
-// LocalStorage utilities
+/* -------- LocalStorage helpers -------- */
 const STORAGE_KEYS = {
   BEARER_TOKEN: "analytics_bearer_token",
   OUTBOUND_ID: "analytics_outbound_id",
@@ -331,62 +301,39 @@ const STORAGE_KEYS = {
 
 const saveToLocalStorage = (key: string, value: string) => {
   try {
-    if (typeof window !== "undefined" && window.localStorage) {
-      localStorage.setItem(key, value)
-    }
-  } catch (error) {
-    console.warn("Failed to save to localStorage:", error)
-  }
+    if (typeof window !== "undefined" && window.localStorage) localStorage.setItem(key, value)
+  } catch {}
 }
-
 const getFromLocalStorage = (key: string): string | null => {
   try {
-    if (typeof window !== "undefined" && window.localStorage) {
-      return localStorage.getItem(key)
-    }
-  } catch (error) {
-    console.warn("Failed to read from localStorage:", error)
-  }
+    if (typeof window !== "undefined" && window.localStorage) return localStorage.getItem(key)
+  } catch {}
   return null
 }
-
 const removeFromLocalStorage = (key: string) => {
   try {
-    if (typeof window !== "undefined" && window.localStorage) {
-      localStorage.removeItem(key)
-    }
-  } catch (error) {
-    console.warn("Failed to remove from localStorage:", error)
-  }
+    if (typeof window !== "undefined" && window.localStorage) localStorage.removeItem(key)
+  } catch {}
 }
-
 const clearAnalyticsStorage = () => {
-  Object.values(STORAGE_KEYS).forEach((key) => {
-    removeFromLocalStorage(key)
-  })
+  Object.values(STORAGE_KEYS).forEach((key) => removeFromLocalStorage(key))
 }
 
-// API Base URLs
+/* --------------- Consts --------------- */
 const API_BASE_URL = "https://whitelabel-server.onrender.com"
 const ANALYTICS_API_BASE_URL = "https://api.nlpearl.ai/v1"
 
-// ✅ Custom pricing (YOUR rates)
 const OUR_CALL_RATE_PER_MIN = 0.4 // $ per minute
 const OUR_SMS_RATE = 0.16 as const
 void OUR_SMS_RATE
 
-// Helper function to get date range (last 30 days by default)
 const getDefaultDateRange = () => {
   const to = new Date()
   const from = new Date()
   from.setDate(from.getDate() - 30)
-  return {
-    from: from.toISOString(),
-    to: to.toISOString(),
-  }
+  return { from: from.toISOString(), to: to.toISOString() }
 }
 
-// Chart colors
 const SENTIMENT_COLORS = {
   positive: "#22c55e",
   slightlyPositive: "#84cc16",
@@ -395,7 +342,6 @@ const SENTIMENT_COLORS = {
   negative: "#ef4444",
 }
 
-// Sidebar navigation items
 const sidebarItems = [
   { id: "overview", label: "Overview", icon: Home },
   { id: "timeline", label: "Timeline", icon: Clock },
@@ -404,7 +350,6 @@ const sidebarItems = [
   { id: "events", label: "Events", icon: Calendar },
 ]
 
-// Recharts tooltip formatter for the cost chart, strongly typed
 const priceTooltipFormatter: NonNullable<TooltipProps<number, string>["formatter"]> = (value, name, item) => {
   const dataKey = (item as { dataKey?: string } | undefined)?.dataKey
   const isTotal = dataKey === "totalPrice"
@@ -412,13 +357,15 @@ const priceTooltipFormatter: NonNullable<TooltipProps<number, string>["formatter
   return [formatted, String(name)]
 }
 
-// Main Component
+/* ============== Component ============== */
 const OverviewPage = () => {
   const { user, isLoaded } = useUser()
   const { toast } = useToast()
+
   const [campaigns, setCampaigns] = useState<CampaignData[]>([])
   const [selectedCampaign, setSelectedCampaign] = useState<CampaignData | null>(null)
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null)
+
   const [loading, setLoading] = useState(false)
   const [analyticsLoading, setAnalyticsLoading] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
@@ -427,11 +374,11 @@ const OverviewPage = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   // Active-state + toggling state
-  const [isCampaignOn, setIsCampaignOn] = useState<boolean | null>(null)
-  const [isToggling, setIsToggling] = useState(false)
-  const [isCampaignChecking, setIsCampaignChecking] = useState(false)
+  const [, setIsCampaignOn] = useState<boolean | null>(null)
 
-  // ---- STATUS CHECK ----
+  const [, setIsCampaignChecking] = useState(false)
+
+  /* ---- STATUS CHECK ---- */
   const fetchOutboundActive = useCallback(
     async (outboundId: string, bearerToken: string) => {
       setIsCampaignChecking(true)
@@ -482,88 +429,16 @@ const OverviewPage = () => {
     [toast],
   )
 
-  // ---- TOGGLE ----
-  const toggleOutboundActive = useCallback(
-    async (outboundId: string, bearerToken: string, isActive: boolean) => {
-      const response = await fetch(`${ANALYTICS_API_BASE_URL}/Outbound/${outboundId}/Active`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${bearerToken.replace("Bearer ", "")}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ isActive }),
-      })
 
-      if (!response.ok) {
-        let errorMessage = "Failed to toggle campaign."
-        switch (response.status) {
-          case 401:
-            errorMessage = "Invalid bearer token."
-            break
-          case 403:
-            errorMessage = "Access denied."
-            break
-          case 404:
-            errorMessage = "Outbound ID not found."
-            break
-          case 400:
-            errorMessage = "Invalid request body."
-            break
-          case 500:
-            errorMessage = "Server error."
-            break
-          default:
-            errorMessage = `API error (${response.status}).`
-        }
-        throw new Error(errorMessage)
-      }
-    },
-    [],
-  )
 
-  const handleCampaign = useCallback(async () => {
-    if (!selectedCampaign?.outboundId || !selectedCampaign?.bearerToken) {
-      toast({
-        title: "Select a campaign",
-        description: "No campaign credentials available.",
-        variant: "destructive",
-      })
-      return
-    }
-    if (isToggling || isCampaignChecking || isCampaignOn === null) return
 
-    const next = !isCampaignOn
-    setIsCampaignOn(next) // optimistic
-    setIsToggling(true)
 
-    try {
-      await toggleOutboundActive(selectedCampaign.outboundId, selectedCampaign.bearerToken, next)
-      toast({
-        title: next ? "Campaign enabled" : "Campaign disabled",
-        description: `Outbound ${selectedCampaign.outboundId} is now ${next ? "active" : "inactive"}.`,
-      })
-    } catch (err) {
-      setIsCampaignOn(!next) // revert
-      const msg = err instanceof Error ? err.message : "Unexpected error."
-      toast({ title: "Toggle failed", description: msg, variant: "destructive" })
-    } finally {
-      setIsToggling(false)
-    }
-  }, [selectedCampaign, isCampaignOn, isToggling, isCampaignChecking, toggleOutboundActive, toast])
+  /* ---- Memo ---- */
+  const userEmail = useMemo(() => user?.emailAddresses?.[0]?.emailAddress || "", [user?.emailAddresses])
+  const isConfigured = useMemo(() => campaigns.length > 0, [campaigns.length])
 
-  // Memoized values
-  const userEmail = useMemo(() => {
-    return user?.emailAddresses?.[0]?.emailAddress || ""
-  }, [user?.emailAddresses])
-
-  const isConfigured = useMemo(() => {
-    return campaigns.length > 0
-  }, [campaigns.length])
-
-  // 🔢 Recalculate cost timeline using YOUR call rate
   const ourCostTimeline = useMemo(() => {
     if (!analyticsData) return []
-
     const avgMap = new Map((analyticsData.callsAverageTimeLine || []).map((d) => [d.date, d.averageCallDuration]))
     const callMap = new Map((analyticsData.callsStatusTimeLine || []).map((d) => [d.date, d.totalCalls]))
     const dates = Array.from(new Set([...avgMap.keys(), ...callMap.keys()])).sort(
@@ -580,7 +455,7 @@ const OverviewPage = () => {
     })
   }, [analyticsData])
 
-  // Fetch campaigns by email
+  /* ---- Data Fetchers ---- */
   const fetchCampaigns = useCallback(
     async (email: string, showLoader = true) => {
       if (!email) return
@@ -618,7 +493,6 @@ const OverviewPage = () => {
           const campaignToSelect = existingCampaign || campaignsArray[0]
           setSelectedCampaign(campaignToSelect)
 
-          // Save + fetch analytics + fetch active state
           saveToLocalStorage(STORAGE_KEYS.CAMPAIGN_ID, campaignToSelect.id)
           saveToLocalStorage(STORAGE_KEYS.BEARER_TOKEN, campaignToSelect.bearerToken)
           saveToLocalStorage(STORAGE_KEYS.OUTBOUND_ID, campaignToSelect.outboundId)
@@ -649,7 +523,6 @@ const OverviewPage = () => {
     [toast, fetchOutboundActive],
   )
 
-  // Fetch analytics data
   const fetchAnalytics = useCallback(
     async (outboundId: string, bearerToken: string, customDateRange?: typeof dateRange) => {
       if (!outboundId || !bearerToken) return
@@ -664,10 +537,7 @@ const OverviewPage = () => {
             Authorization: `Bearer ${bearerToken.replace("Bearer ", "")}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            from: range.from,
-            to: range.to,
-          }),
+          body: JSON.stringify({ from: range.from, to: range.to }),
           signal: controller.signal,
         })
         clearTimeout(timeoutId)
@@ -698,9 +568,7 @@ const OverviewPage = () => {
         setAnalyticsData(data)
         saveToLocalStorage(STORAGE_KEYS.BEARER_TOKEN, bearerToken)
         saveToLocalStorage(STORAGE_KEYS.OUTBOUND_ID, outboundId)
-        if (selectedCampaign) {
-          saveToLocalStorage(STORAGE_KEYS.CAMPAIGN_ID, selectedCampaign.id)
-        }
+        if (selectedCampaign) saveToLocalStorage(STORAGE_KEYS.CAMPAIGN_ID, selectedCampaign.id)
         toast({ title: "Success", description: "Analytics data loaded successfully!" })
       } catch (error) {
         console.error("Error fetching analytics:", error)
@@ -726,7 +594,6 @@ const OverviewPage = () => {
     [dateRange, toast, selectedCampaign],
   )
 
-  // Handle campaign selection
   const handleCampaignChange = useCallback(
     (campaignId: string) => {
       const campaign = campaigns.find((c) => c.id === campaignId)
@@ -739,7 +606,6 @@ const OverviewPage = () => {
     [campaigns, fetchAnalytics, fetchOutboundActive],
   )
 
-  // Manual refresh
   const handleRefresh = useCallback(async () => {
     if (!userEmail || refreshing) return
     setRefreshing(true)
@@ -755,7 +621,7 @@ const OverviewPage = () => {
     toast({ title: "Refreshed", description: "Data has been refreshed." })
   }, [userEmail, refreshing, fetchCampaigns, selectedCampaign, fetchAnalytics, fetchOutboundActive, toast])
 
-  // Initial data fetch
+  /* ---- Effects ---- */
   useEffect(() => {
     if (isLoaded && userEmail) {
       fetchCampaigns(userEmail).then((campaignsData) => {
@@ -766,7 +632,6 @@ const OverviewPage = () => {
     }
   }, [isLoaded, userEmail, fetchCampaigns])
 
-  // Load saved credentials (and read status)
   useEffect(() => {
     if (isLoaded && campaigns.length > 0) {
       const savedCampaignId = getFromLocalStorage(STORAGE_KEYS.CAMPAIGN_ID)
@@ -795,21 +660,20 @@ const OverviewPage = () => {
     toast({ title: "Cleared", description: "Stored credentials have been cleared." })
   }, [toast])
 
-  // Loading state
+  /* ---- Loading gates ---- */
   if (!isLoaded) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex items-center justify-center min-h-[100svh]">
         <Loader2 className="h-8 w-8 animate-spin" />
         <span className="ml-2">Loading...</span>
       </div>
     )
   }
 
-  // Not authenticated
   if (!user) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
+      <div className="flex items-center justify-center min-h-[100svh]">
+        <div className="text-center px-4">
           <h2 className="text-xl font-semibold mb-2">Authentication Required</h2>
           <p className="text-gray-600">Please sign in to continue.</p>
         </div>
@@ -817,7 +681,7 @@ const OverviewPage = () => {
     )
   }
 
-  // Render content based on active section
+  /* ---- Content renderer ---- */
   const renderContent = () => {
     if (!analyticsData) {
       return (
@@ -841,7 +705,7 @@ const OverviewPage = () => {
         return (
           <div className="space-y-4 lg:space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
-              <Card>
+              <Card className="min-w-0">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-xs lg:text-sm font-medium">Total Calls</CardTitle>
                   <Phone className="h-4 w-4 text-muted-foreground" />
@@ -852,7 +716,7 @@ const OverviewPage = () => {
                   </div>
                 </CardContent>
               </Card>
-              <Card>
+              <Card className="min-w-0">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-xs lg:text-sm font-medium">Total Leads</CardTitle>
                   <Users className="h-4 w-4 text-muted-foreground" />
@@ -863,7 +727,7 @@ const OverviewPage = () => {
                   </div>
                 </CardContent>
               </Card>
-              <Card>
+              <Card className="min-w-0">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-xs lg:text-sm font-medium">Successful</CardTitle>
                   <TrendingUp className="h-4 w-4 text-muted-foreground" />
@@ -874,7 +738,7 @@ const OverviewPage = () => {
                   </div>
                 </CardContent>
               </Card>
-              <Card>
+              <Card className="min-w-0">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-xs lg:text-sm font-medium">Completed</CardTitle>
                   <BarChart3 className="h-4 w-4 text-muted-foreground" />
@@ -886,8 +750,9 @@ const OverviewPage = () => {
                 </CardContent>
               </Card>
             </div>
+
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 lg:gap-6">
-              <Card>
+              <Card className="min-w-0">
                 <CardHeader>
                   <CardTitle className="text-base lg:text-lg">Call Status Overview</CardTitle>
                 </CardHeader>
@@ -902,7 +767,8 @@ const OverviewPage = () => {
                   </div>
                 </CardContent>
               </Card>
-              <Card>
+
+              <Card className="min-w-0">
                 <CardHeader>
                   <CardTitle className="text-base lg:text-lg">Event Counts</CardTitle>
                 </CardHeader>
@@ -924,25 +790,21 @@ const OverviewPage = () => {
       case "timeline":
         return (
           <div className="space-y-6">
-            <Card>
+            <Card className="min-w-0">
               <CardHeader>
                 <CardTitle>Calls Timeline</CardTitle>
                 <CardDescription>Total calls and leads over time</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="h-[250px] lg:h-[300px]">
+                <div className="h-[220px] sm:h-[250px] lg:h-[300px]">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={analyticsData.callsStatusTimeLine}>
                       <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis
-                        dataKey="date"
-                        tickFormatter={(value) => new Date(value).toLocaleDateString()}
-                        fontSize={12}
-                      />
+                      <XAxis dataKey="date" tickFormatter={(v) => new Date(v).toLocaleDateString()} fontSize={12} />
                       <YAxis fontSize={12} />
                       <Tooltip
-                        labelFormatter={(value) => new Date(value).toLocaleDateString()}
-                        formatter={(value, name) => [value.toLocaleString(), name]}
+                        labelFormatter={(v) => new Date(v).toLocaleDateString()}
+                        formatter={(value: number, name: string) => [value.toLocaleString(), name]}
                       />
                       <Line
                         type="monotone"
@@ -950,7 +812,7 @@ const OverviewPage = () => {
                         stroke="#3b82f6"
                         strokeWidth={2}
                         name="Total Calls"
-                        dot={{ fill: "#3b82f6", strokeWidth: 2, r: 4 }}
+                        dot={{ fill: "#3b82f6", strokeWidth: 2, r: 3 }}
                       />
                       <Line
                         type="monotone"
@@ -958,32 +820,29 @@ const OverviewPage = () => {
                         stroke="#10b981"
                         strokeWidth={2}
                         name="Total Leads"
-                        dot={{ fill: "#10b981", strokeWidth: 2, r: 4 }}
+                        dot={{ fill: "#10b981", strokeWidth: 2, r: 3 }}
                       />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
               </CardContent>
             </Card>
-            <Card>
+
+            <Card className="min-w-0">
               <CardHeader>
                 <CardTitle>Average Call Duration</CardTitle>
                 <CardDescription>Average call duration over time (minutes)</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="h-[250px] lg:h-[300px]">
+                <div className="h-[220px] sm:h-[250px] lg:h-[300px]">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={analyticsData.callsAverageTimeLine}>
                       <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis
-                        dataKey="date"
-                        tickFormatter={(value) => new Date(value).toLocaleDateString()}
-                        fontSize={12}
-                      />
-                      <YAxis fontSize={12} tickFormatter={(value) => `${Math.round(value / 60)}m`} />
+                      <XAxis dataKey="date" tickFormatter={(v) => new Date(v).toLocaleDateString()} fontSize={12} />
+                      <YAxis fontSize={12} tickFormatter={(v) => `${Math.round(Number(v) / 60)}m`} />
                       <Tooltip
-                        labelFormatter={(value) => new Date(value).toLocaleDateString()}
-                        formatter={(value) => [`${Math.round(Number(value) / 60)} minutes`, "Average Duration"]}
+                        labelFormatter={(v) => new Date(v).toLocaleDateString()}
+                        formatter={(v) => [`${Math.round(Number(v) / 60)} minutes`, "Average Duration"]}
                       />
                       <Line
                         type="monotone"
@@ -991,7 +850,7 @@ const OverviewPage = () => {
                         stroke="#8b5cf6"
                         strokeWidth={2}
                         name="Average Duration"
-                        dot={{ fill: "#8b5cf6", strokeWidth: 2, r: 4 }}
+                        dot={{ fill: "#8b5cf6", strokeWidth: 2, r: 3 }}
                       />
                     </LineChart>
                   </ResponsiveContainer>
@@ -1005,7 +864,7 @@ const OverviewPage = () => {
         return (
           <div className="space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <Card>
+              <Card className="min-w-0">
                 <CardHeader>
                   <CardTitle>Pickup Rate</CardTitle>
                   <CardDescription>Call pickup rate over time (%)</CardDescription>
@@ -1015,30 +874,17 @@ const OverviewPage = () => {
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={analyticsData.callsPickupRateTimeLine}>
                         <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis
-                          dataKey="date"
-                          tickFormatter={(value) => new Date(value).toLocaleDateString()}
-                          fontSize={12}
-                        />
-                        <YAxis fontSize={12} domain={[0, 100]} tickFormatter={(value) => `${value}%`} />
-                        <Tooltip
-                          labelFormatter={(value) => new Date(value).toLocaleDateString()}
-                          formatter={(value) => [`${value}%`, "Pickup Rate"]}
-                        />
-                        <Line
-                          type="monotone"
-                          dataKey="pickupRatePercentage"
-                          stroke="#f59e0b"
-                          strokeWidth={2}
-                          name="Pickup Rate"
-                          dot={{ fill: "#f59e0b", strokeWidth: 2, r: 4 }}
-                        />
+                        <XAxis dataKey="date" tickFormatter={(v) => new Date(v).toLocaleDateString()} fontSize={12} />
+                        <YAxis fontSize={12} domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
+                        <Tooltip labelFormatter={(v) => new Date(v).toLocaleDateString()} formatter={(v) => [`${v}%`, "Pickup Rate"]} />
+                        <Line type="monotone" dataKey="pickupRatePercentage" stroke="#f59e0b" strokeWidth={2} name="Pickup Rate" dot={{ fill: "#f59e0b", strokeWidth: 2, r: 3 }} />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
                 </CardContent>
               </Card>
-              <Card>
+
+              <Card className="min-w-0">
                 <CardHeader>
                   <CardTitle>Success Rate</CardTitle>
                   <CardDescription>Call success rate over time (%)</CardDescription>
@@ -1048,74 +894,33 @@ const OverviewPage = () => {
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={analyticsData.callsSuccessRateTimeLine}>
                         <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis
-                          dataKey="date"
-                          tickFormatter={(value) => new Date(value).toLocaleDateString()}
-                          fontSize={12}
-                        />
-                        <YAxis fontSize={12} domain={[0, 100]} tickFormatter={(value) => `${value}%`} />
-                        <Tooltip
-                          labelFormatter={(value) => new Date(value).toLocaleDateString()}
-                          formatter={(value) => [`${value}%`, "Success Rate"]}
-                        />
-                        <Line
-                          type="monotone"
-                          dataKey="successRatePercentage"
-                          stroke="#22c55e"
-                          strokeWidth={2}
-                          name="Success Rate"
-                          dot={{ fill: "#22c55e", strokeWidth: 2, r: 4 }}
-                        />
+                        <XAxis dataKey="date" tickFormatter={(v) => new Date(v).toLocaleDateString()} fontSize={12} />
+                        <YAxis fontSize={12} domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
+                        <Tooltip labelFormatter={(v) => new Date(v).toLocaleDateString()} formatter={(v) => [`${v}%`, "Success Rate"]} />
+                        <Line type="monotone" dataKey="successRatePercentage" stroke="#22c55e" strokeWidth={2} name="Success Rate" dot={{ fill: "#22c55e", strokeWidth: 2, r: 3 }} />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
                 </CardContent>
               </Card>
             </div>
-            <Card>
+
+            <Card className="min-w-0">
               <CardHeader>
                 <CardTitle>Cost Analysis</CardTitle>
                 <CardDescription>Total cost and average cost per call over time</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="h-[250px] lg:h-[300px]">
+                <div className="h-[230px] sm:h-[260px] lg:h-[300px]">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={ourCostTimeline}>
                       <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis
-                        dataKey="date"
-                        tickFormatter={(value) => new Date(value).toLocaleDateString()}
-                        fontSize={12}
-                      />
-                      <YAxis yAxisId="left" fontSize={12} tickFormatter={(value: number) => `$${value.toFixed(2)}`} />
-                      <YAxis
-                        yAxisId="right"
-                        orientation="right"
-                        fontSize={12}
-                        tickFormatter={(value: number) => `$${value.toFixed(3)}`}
-                      />
-                      <Tooltip<number, string>
-                        labelFormatter={(value) => new Date(value).toLocaleDateString()}
-                        formatter={priceTooltipFormatter}
-                      />
-                      <Line
-                        yAxisId="left"
-                        type="monotone"
-                        dataKey="totalPrice"
-                        stroke="#dc2626"
-                        strokeWidth={2}
-                        name="Total Price"
-                        dot={{ fill: "#dc2626", strokeWidth: 2, r: 4 }}
-                      />
-                      <Line
-                        yAxisId="right"
-                        type="monotone"
-                        dataKey="averageCostPerCall"
-                        stroke="#7c3aed"
-                        strokeWidth={2}
-                        name="Avg Cost Per Call"
-                        dot={{ fill: "#7c3aed", strokeWidth: 2, r: 4 }}
-                      />
+                      <XAxis dataKey="date" tickFormatter={(v) => new Date(v).toLocaleDateString()} fontSize={12} />
+                      <YAxis yAxisId="left" fontSize={12} tickFormatter={(v: number) => `$${v.toFixed(2)}`} />
+                      <YAxis yAxisId="right" orientation="right" fontSize={12} tickFormatter={(v: number) => `$${v.toFixed(3)}`} />
+                      <Tooltip<number, string> labelFormatter={(v) => new Date(v).toLocaleDateString()} formatter={priceTooltipFormatter} />
+                      <Line yAxisId="left" type="monotone" dataKey="totalPrice" stroke="#dc2626" strokeWidth={2} name="Total Price" dot={{ fill: "#dc2626", strokeWidth: 2, r: 3 }} />
+                      <Line yAxisId="right" type="monotone" dataKey="averageCostPerCall" stroke="#7c3aed" strokeWidth={2} name="Avg Cost Per Call" dot={{ fill: "#7c3aed", strokeWidth: 2, r: 3 }} />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
@@ -1126,7 +931,7 @@ const OverviewPage = () => {
 
       case "sentiment":
         return (
-          <Card>
+          <Card className="min-w-0">
             <CardHeader>
               <CardTitle className="text-base lg:text-lg">Sentiment Analysis</CardTitle>
               <CardDescription className="text-sm">Distribution of call sentiments</CardDescription>
@@ -1142,13 +947,9 @@ const OverviewPage = () => {
                         <div className="flex items-center space-x-2 lg:space-x-3">
                           <div
                             className="w-3 h-3 lg:w-4 lg:h-4 rounded-full"
-                            style={{
-                              backgroundColor: SENTIMENT_COLORS[key as keyof typeof SENTIMENT_COLORS],
-                            }}
+                            style={{ backgroundColor: SENTIMENT_COLORS[key as keyof typeof SENTIMENT_COLORS] }}
                           />
-                          <span className="text-sm lg:text-base capitalize">
-                            {key.replace(/([A-Z])/g, " $1").trim()}
-                          </span>
+                          <span className="text-sm lg:text-base capitalize">{key.replace(/([A-Z])/g, " $1").trim()}</span>
                         </div>
                         <div className="text-right">
                           <span className="font-semibold text-sm lg:text-base">{value.toLocaleString()}</span>
@@ -1158,8 +959,9 @@ const OverviewPage = () => {
                     )
                   })}
                 </div>
+
                 <div className="flex justify-center mt-4 lg:mt-0">
-                  <div className="h-[250px] w-[250px] lg:h-[300px] lg:w-[300px]">
+                  <div className="h-[220px] w-[220px] sm:h-[260px] sm:w-[260px] lg:h-[300px] lg:w-[300px]">
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
                         <Pie
@@ -1181,7 +983,7 @@ const OverviewPage = () => {
                             <Cell key={`cell-${index}`} fill={SENTIMENT_COLORS[key as keyof typeof SENTIMENT_COLORS]} />
                           ))}
                         </Pie>
-                        <Tooltip formatter={(value, name) => [value.toLocaleString(), name]} />
+                        <Tooltip formatter={(value: number, name: string) => [value.toLocaleString(), name]} />
                       </PieChart>
                     </ResponsiveContainer>
                   </div>
@@ -1194,7 +996,7 @@ const OverviewPage = () => {
       case "events":
         return (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <Card>
+            <Card className="min-w-0">
               <CardHeader>
                 <CardTitle>Call Labels</CardTitle>
                 <CardDescription>Distribution of call labels</CardDescription>
@@ -1220,19 +1022,20 @@ const OverviewPage = () => {
                 </div>
               </CardContent>
             </Card>
-            <Card>
+
+            <Card className="min-w-0">
               <CardHeader>
                 <CardTitle>Calls by Hour</CardTitle>
                 <CardDescription>Call distribution throughout the day</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="h-[250px] lg:h-[300px]">
+                <div className="h-[230px] sm:h-[260px] lg:h-[300px]">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={analyticsData.callsByHourDayOfWeeks}>
                       <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="hourOfDay" fontSize={12} tickFormatter={(value) => `${value}:00`} />
+                      <XAxis dataKey="hourOfDay" fontSize={12} tickFormatter={(v) => `${v}:00`} />
                       <YAxis fontSize={12} />
-                      <Tooltip labelFormatter={(value) => `${value}:00`} formatter={(value) => [value.toLocaleString(), "Calls"]} />
+                      <Tooltip labelFormatter={(v) => `${v}:00`} formatter={(v: number) => [v.toLocaleString(), "Calls"]} />
                       <Bar dataKey="count" fill="#3b82f6" radius={[2, 2, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
@@ -1247,18 +1050,23 @@ const OverviewPage = () => {
     }
   }
 
+  /* ---- Layout ---- */
   return (
     <>
-      <div className="flex h-screen bg-gray-50 overflow-hidden">
+      <div className="flex min-h-[100svh] bg-gray-50 overflow-x-hidden">
         {/* Mobile sidebar overlay */}
         {sidebarOpen && (
-          <div className="fixed inset-0 z-40 bg-black bg-opacity-50 lg:hidden" onClick={() => setSidebarOpen(false)} />
+          <div
+            className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px] lg:hidden"
+            onClick={() => setSidebarOpen(false)}
+          />
         )}
 
         {/* Sidebar */}
         <div
           className={cn(
-            "fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-gray-200 flex flex-col transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0",
+            "fixed inset-y-0 left-0 z-50 w-72 sm:w-72 md:w-64 bg-white border-r border-gray-200 flex flex-col transform transition-transform duration-300 ease-in-out",
+            "lg:translate-x-0 lg:static lg:inset-0",
             sidebarOpen ? "translate-x-0" : "-translate-x-full",
           )}
         >
@@ -1313,68 +1121,37 @@ const OverviewPage = () => {
           {campaigns.length > 0 ? (
             <div className="p-4 lg:p-6 border-b border-gray-200">
               <h3 className="text-sm font-semibold mb-3">Select Campaign</h3>
-              <Select value={selectedCampaign?.id || ""} onValueChange={handleCampaignChange}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select a campaign" />
-                </SelectTrigger>
-                <SelectContent>
-                  {campaigns.map((campaign) => (
-                    <SelectItem key={campaign.id} value={campaign.id}>
-                      <div className="flex flex-col">
-                        <span className="font-medium text-sm">{campaign.campaignName}</span>
-                        <span className="text-xs text-gray-500">ID: {campaign.outboundId}</span>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-                <button
-              type="button"
-              onClick={handleCampaign}
-              role="switch"
-              aria-checked={!!isCampaignOn}
-              aria-label="Toggle outbound campaign"
-              disabled={isToggling || isCampaignChecking || !selectedCampaign || isCampaignOn === null}
-              className={cn(
-                "relative inline-flex h-7 w-24 items-center my-4 rounded-full bg-neutral-900 ring-1 ring-neutral-700 p-0.5 transition-colors focus:outline-none",
-                (isToggling || isCampaignChecking || !selectedCampaign || isCampaignOn === null) &&
-                  "opacity-60 cursor-not-allowed",
-              )}
-              title={
-                isCampaignOn === null
-                  ? "Status unknown"
-                  : isCampaignOn
-                  ? "Campaign is ON"
-                  : "Campaign is OFF"
-              }
-            >
-              <span
-                className={`pointer-events-none absolute top-0.5 bottom-0.5 left-0.5 w-[calc(50%-4px)] rounded-full bg-neutral-600 transition-transform duration-200 ${
-                  !!isCampaignOn ? "translate-x-0" : "translate-x-[calc(100%+4px)]"
-                }`}
-                aria-hidden="true"
-              />
-              <span className={`z-10 flex-1 text-center text-sm ${!!isCampaignOn ? "text-white" : "text-neutral-400"}`}>
-                {isCampaignChecking ? "…" : "On"}
-              </span>
-              <span className={`z-10 flex-1 text-center text-sm ${!isCampaignOn ? "text-white" : "text-neutral-400"}`}>
-                {isCampaignChecking ? "…" : "Off"}
-              </span>
-            </button>
+              <div className="space-y-3">
+                <Select value={selectedCampaign?.id || ""} onValueChange={handleCampaignChange}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select a campaign" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-64">
+                    {campaigns.map((campaign) => (
+                      <SelectItem key={campaign.id} value={campaign.id} className="whitespace-normal">
+                        <div className="flex flex-col">
+                          <span className="font-medium text-sm">{campaign.campaignName}</span>
+                          <span className="text-xs text-gray-500 break-all">ID: {campaign.outboundId}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+          
+              </div>
             </div>
           ) : (
             <div className="p-4 lg:p-6 border-b border-gray-200">
               <div className="text-center py-4">
                 <p className="text-sm text-gray-500 mb-2">No campaigns available</p>
-                <p className="text-xs text-gray-400">
-                  {loading ? "Loading campaigns..." : "Please check your email configuration"}
-                </p>
+                <p className="text-xs text-gray-400">{loading ? "Loading campaigns..." : "Please check your email configuration"}</p>
               </div>
             </div>
           )}
 
-          {/* Navigation */}
-          <nav className="flex-1 p-4">
+          {/* Navigation (scrollable if needed) */}
+          <nav className="flex-1 p-4 overflow-y-auto">
             <div className="space-y-1">
               {sidebarItems.map((item) => {
                 const Icon = item.icon
@@ -1392,15 +1169,12 @@ const OverviewPage = () => {
                         : "text-gray-600 hover:bg-gray-50 hover:text-gray-900",
                     )}
                   >
-                    <Icon className="mr-3 h-4 w-4" />
-                    {item.label}
+                    <Icon className="mr-3 h-4 w-4 shrink-0" />
+                    <span className="truncate">{item.label}</span>
                   </button>
                 )
               })}
             </div>
-
-            {/* Outbound On/Off Toggle */}
-          
           </nav>
 
           {/* Action Buttons */}
@@ -1435,9 +1209,12 @@ const OverviewPage = () => {
             <div className="w-9" />
           </div>
 
-          {/* Content area */}
-          <div className="flex-1 overflow-auto">
-            <div className="p-4 lg:p-6">
+          {/* Content area (scrolls on mobile & desktop) */}
+          <div
+            className="flex-1 overflow-y-auto touch-pan-y"
+            style={{ WebkitOverflowScrolling: "touch" }}
+          >
+            <div className="p-3 sm:p-4 lg:p-6">
               {analyticsLoading ? (
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="h-6 w-6 animate-spin mr-2" />

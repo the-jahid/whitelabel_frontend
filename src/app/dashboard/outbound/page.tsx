@@ -5,8 +5,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 export default function Dashboard() {
   return (
-    <div className="min-h-screen w-full bg-white text-black">
-      <div className="mx-auto  px-3 sm:px-4 lg:px-6 py-4 sm:py-6">
+    /* Create a dedicated scrolling container for this page */
+    <div className="relative h-[100svh] w-full overflow-y-auto bg-white text-black">
+      <div className="mx-auto px-3 sm:px-4 lg:px-6 py-4 sm:py-6">
         <Tabs defaultValue="overview" className="w-full">
           {/* Sticky, responsive tab bar */}
           <div className="sticky top-0 z-10 -mx-3 sm:-mx-4 lg:-mx-6 mb-4 sm:mb-6 bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/60">
@@ -41,7 +42,7 @@ export default function Dashboard() {
             <LeadsPage />
           </TabsContent>
 
-          <TabsContent value="calls" className="mt-0 sm:mt-2">
+          <TabsContent value="calls" className="mt-0 sm:mt-2 pb-8">
             <CallsPage />
           </TabsContent>
         </Tabs>
@@ -49,6 +50,3 @@ export default function Dashboard() {
     </div>
   )
 }
-
-
-

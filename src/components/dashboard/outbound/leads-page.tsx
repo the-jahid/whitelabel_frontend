@@ -1,7 +1,6 @@
 "use client"
 
-import React from "react"
-import { useState, useEffect, useRef } from "react"
+import React, { useState, useEffect, useRef, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -24,7 +23,7 @@ import {
   Phone,
   Plus,
   Upload,
-  X,
+  X as XIcon,
   Play,
   Pause,
   Clock,
@@ -36,6 +35,7 @@ import {
 import * as ToastPrimitives from "@radix-ui/react-toast"
 import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
+import * as XLSX from "xlsx"
 
 /* ----------------- CSV helpers ----------------- */
 const escapeCsv = (val: string | number | null | undefined) => {
@@ -57,7 +57,7 @@ const downloadBlob = (content: string, filename: string, type = "text/csv;charse
 }
 /* ----------------------------------------------- */
 
-// Toast Components
+/* ---------------- Toast ---------------- */
 const ToastProvider = ToastPrimitives.Provider
 
 const ToastViewport = React.forwardRef<
@@ -84,9 +84,7 @@ const toastVariants = cva(
         destructive: "destructive border-destructive bg-destructive text-destructive-foreground",
       },
     },
-    defaultVariants: {
-      variant: "default",
-    },
+    defaultVariants: { variant: "default" },
   },
 )
 
@@ -111,7 +109,7 @@ const ToastClose = React.forwardRef<
     toast-close=""
     {...props}
   >
-    <X className="h-4 w-4" />
+    <XIcon className="h-4 w-4" />
   </ToastPrimitives.Close>
 ))
 ToastClose.displayName = ToastPrimitives.Close.displayName
@@ -119,9 +117,7 @@ ToastClose.displayName = ToastPrimitives.Close.displayName
 const ToastTitle = React.forwardRef<
   React.ElementRef<typeof ToastPrimitives.Title>,
   React.ComponentPropsWithoutRef<typeof ToastPrimitives.Title>
->(({ className, ...props }, ref) => (
-  <ToastPrimitives.Title ref={ref} className={cn("text-sm font-semibold", className)} {...props} />
-))
+>(({ className, ...props }, ref) => <ToastPrimitives.Title ref={ref} className={cn("text-sm font-semibold", className)} {...props} />)
 ToastTitle.displayName = ToastPrimitives.Title.displayName
 
 const ToastDescription = React.forwardRef<
@@ -132,7 +128,6 @@ const ToastDescription = React.forwardRef<
 ))
 ToastDescription.displayName = ToastPrimitives.Description.displayName
 
-// Toast Hook
 const TOAST_LIMIT = 3
 const TOAST_REMOVE_DELAY = 5000
 
@@ -146,7 +141,6 @@ type ToasterToast = {
 }
 
 let count = 0
-
 function genId() {
   count = (count + 1) % Number.MAX_SAFE_INTEGER
   return count.toString()
@@ -163,7 +157,6 @@ interface State {
 }
 
 const toastTimeouts = new Map<string, ReturnType<typeof setTimeout>>()
-
 const addToRemoveQueue = (toastId: string) => {
   if (toastTimeouts.has(toastId)) return
   const timeout = setTimeout(() => {
@@ -181,11 +174,8 @@ const reducer = (state: State, action: Action): State => {
       return { ...state, toasts: state.toasts.map((t) => (t.id === action.toast.id ? { ...t, ...action.toast } : t)) }
     case "DISMISS_TOAST": {
       const { toastId } = action
-      if (toastId) {
-        addToRemoveQueue(toastId)
-      } else {
-        state.toasts.forEach((toast) => addToRemoveQueue(toast.id))
-      }
+      if (toastId) addToRemoveQueue(toastId)
+      else state.toasts.forEach((toast) => addToRemoveQueue(toast.id))
       return {
         ...state,
         toasts: state.toasts.map((t) => (t.id === toastId || toastId === undefined ? { ...t, open: false } : t)),
@@ -210,14 +200,7 @@ function toast({ ...props }: Omit<ToasterToast, "id">) {
   const dismiss = () => dispatch({ type: "DISMISS_TOAST", toastId: id })
   dispatch({
     type: "ADD_TOAST",
-    toast: {
-      ...props,
-      id,
-      open: true,
-      onOpenChange: (open) => {
-        if (!open) dismiss()
-      },
-    },
+    toast: { ...props, id, open: true, onOpenChange: (open) => { if (!open) dismiss() } },
   })
   return { id, dismiss }
 }
@@ -240,10 +223,7 @@ const Toaster = React.memo(() => {
     <ToastProvider>
       {toasts.map(({ id, title, description, ...props }) => (
         <Toast key={id} {...props}>
-          <div className="grid gap-1">
-            {title && <ToastTitle>{title}</ToastTitle>}
-            {description && <ToastDescription>{description}</ToastDescription>}
-          </div>
+          <div className="grid gap-1">{title && <ToastTitle>{title}</ToastTitle>}{description && <ToastDescription>{description}</ToastDescription>}</div>
           <ToastClose />
         </Toast>
       ))}
@@ -253,7 +233,7 @@ const Toaster = React.memo(() => {
 })
 Toaster.displayName = "Toaster"
 
-// LocalStorage utilities
+/* -------- LocalStorage helpers -------- */
 const STORAGE_KEYS = {
   BEARER_TOKEN: "analytics_bearer_token",
   OUTBOUND_ID: "analytics_outbound_id",
@@ -261,45 +241,28 @@ const STORAGE_KEYS = {
 
 const saveToLocalStorage = (key: string, value: string) => {
   try {
-    if (typeof window !== "undefined" && window.localStorage) {
-      localStorage.setItem(key, value)
-    }
-  } catch (error) {
-    console.warn("Failed to save to localStorage:", error)
-  }
+    if (typeof window !== "undefined" && window.localStorage) localStorage.setItem(key, value)
+  } catch {}
 }
-
 const getFromLocalStorage = (key: string): string | null => {
   try {
-    if (typeof window !== "undefined" && window.localStorage) {
-      return localStorage.getItem(key)
-    }
-  } catch (error) {
-    console.warn("Failed to read from localStorage:", error)
-  }
+    if (typeof window !== "undefined" && window.localStorage) return localStorage.getItem(key)
+  } catch {}
   return null
 }
-
 const removeFromLocalStorage = (key: string) => {
   try {
-    if (typeof window !== "undefined" && window.localStorage) {
-      localStorage.removeItem(key)
-    }
-  } catch (error) {
-    console.warn("Failed to remove from localStorage:", error)
-  }
+    if (typeof window !== "undefined" && window.localStorage) localStorage.removeItem(key)
+  } catch {}
 }
-
 const clearLeadsStorage = () => {
-  Object.values(STORAGE_KEYS).forEach((key) => {
-    removeFromLocalStorage(key)
-  })
+  Object.values(STORAGE_KEYS).forEach((key) => removeFromLocalStorage(key))
 }
 
-// API configuration
-const API_BASE_URL = "https://api.nlpearl.ai/v1"
+/* --------------- APIs --------------- */
+const API_BASE_URL = "https://api.nlpearl.ai/v1" // calls + status + toggle
 
-// Lead type definition
+/* --------------- Types --------------- */
 type Lead = {
   id: string
   firstName: string
@@ -309,8 +272,6 @@ type Lead = {
   status: "pending" | "called" | "failed"
   callId?: string
 }
-
-// Bulk call state type
 type BulkCallState = {
   inProgress: boolean
   currentIndex: number
@@ -318,11 +279,13 @@ type BulkCallState = {
   timeframe: number
   paused: boolean
 }
+type CampaignCreds = { outboundId: string; bearerToken: string } | null
 
-export default function OutboundCallingSystem() {
+/* ============== Component ============== */
+export default function LeadsPage() {
   const { toast } = useToast()
 
-  // State for leads and modal
+  // Leads state
   const [leads, setLeads] = useState<Lead[]>([])
   const [isAddLeadOpen, setIsAddLeadOpen] = useState(false)
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false)
@@ -332,18 +295,22 @@ export default function OutboundCallingSystem() {
   const [selectedLeads, setSelectedLeads] = useState<Set<string>>(new Set())
   const [selectAll, setSelectAll] = useState(false)
 
-  // Credentials state
+  // Campaign creds derived from localStorage
+  const [campaignCreds, setCampaignCreds] = useState<CampaignCreds>(null)
+  const isConfigured = !!campaignCreds
+
+  // Campaign ON/OFF toggle state
+  const [isCampaignOn, setIsCampaignOn] = useState<boolean | null>(null)
+  const [isToggling, setIsToggling] = useState(false)
+  const [isCampaignChecking, setIsCampaignChecking] = useState(false)
+
+  // Credentials modal state
   const [bearerToken, setBearerToken] = useState("")
   const [outboundId, setOutboundId] = useState("")
   const [credentialsSubmitting, setCredentialsSubmitting] = useState(false)
 
   // Form state
-  const [formData, setFormData] = useState({
-    firstName: "",
-    lastName: "",
-    email: "",
-    phoneNumber: "",
-  })
+  const [formData, setFormData] = useState({ firstName: "", lastName: "", email: "", phoneNumber: "" })
 
   // Bulk import state
   const [bulkData, setBulkData] = useState("")
@@ -361,26 +328,128 @@ export default function OutboundCallingSystem() {
 
   // Refs for bulk calling
   const bulkCallQueueRef = useRef<Lead[]>([])
-  const bulkCallTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const bulkCallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Check if credentials are configured
-  const isConfigured = React.useMemo(() => {
-    const savedBearerToken = getFromLocalStorage(STORAGE_KEYS.BEARER_TOKEN)
-    const savedOutboundId = getFromLocalStorage(STORAGE_KEYS.OUTBOUND_ID)
-    return savedBearerToken && savedOutboundId
-  }, [])
+  /* ======== Campaign Status Helpers (moved from Overview) ======== */
+  const fetchOutboundActive = useCallback(
+    async (outId: string, token: string) => {
+      setIsCampaignChecking(true)
+      try {
+        const res = await fetch(`${API_BASE_URL}/Outbound/${outId}`, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token.replace("Bearer ", "")}`,
+            "Content-Type": "application/json",
+          },
+        })
+        if (!res.ok) {
+          let msg = `Failed to fetch status (${res.status})`
+          if (res.status === 401) msg = "Invalid bearer token."
+          if (res.status === 403) msg = "Access denied."
+          if (res.status === 404) msg = "Outbound ID not found."
+          throw new Error(msg)
+        }
+        const data = await res.json()
+        const status: number | undefined = data?.status
+        if (status === 1) setIsCampaignOn(true)
+        else if (status === 2) setIsCampaignOn(false)
+        else {
+          setIsCampaignOn(null)
+          toast({
+            title: "Unknown status",
+            description: `Received status=${String(status)}. Expected 1 (ON) or 2 (OFF).`,
+            variant: "destructive",
+          })
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Unable to read campaign status."
+        toast({ title: "Status check failed", description: msg, variant: "destructive" })
+        setIsCampaignOn(null)
+      } finally {
+        setIsCampaignChecking(false)
+      }
+    },
+    [toast],
+  )
 
-  // Load credentials from localStorage on mount
-  useEffect(() => {
-    const savedBearerToken = getFromLocalStorage(STORAGE_KEYS.BEARER_TOKEN)
-    const savedOutboundId = getFromLocalStorage(STORAGE_KEYS.OUTBOUND_ID)
-
-    if (!savedBearerToken || !savedOutboundId) {
-      setIsCredentialsOpen(true)
+  const toggleOutboundActive = useCallback(async (outId: string, token: string, isActive: boolean) => {
+    const response = await fetch(`${API_BASE_URL}/Outbound/${outId}/Active`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token.replace("Bearer ", "")}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ isActive }),
+    })
+    if (!response.ok) {
+      let errorMessage = "Failed to toggle campaign."
+      switch (response.status) {
+        case 401:
+          errorMessage = "Invalid bearer token."
+          break
+        case 403:
+          errorMessage = "Access denied."
+          break
+        case 404:
+          errorMessage = "Outbound ID not found."
+          break
+        case 400:
+          errorMessage = "Invalid request body."
+          break
+        case 500:
+          errorMessage = "Server error."
+          break
+        default:
+          errorMessage = `API error (${response.status}).`
+      }
+      throw new Error(errorMessage)
     }
   }, [])
 
-  // Handle credentials submission
+  const handleCampaign = useCallback(async () => {
+    if (!campaignCreds?.outboundId || !campaignCreds?.bearerToken) {
+      toast({
+        title: "Missing credentials",
+        description: "Please configure your Bearer Token and Outbound ID first.",
+        variant: "destructive",
+      })
+      return
+    }
+    if (isToggling || isCampaignChecking || isCampaignOn === null) return
+
+    const next = !isCampaignOn
+    setIsCampaignOn(next) // optimistic
+    setIsToggling(true)
+    try {
+      await toggleOutboundActive(campaignCreds.outboundId, campaignCreds.bearerToken, next)
+      toast({
+        title: next ? "Campaign enabled" : "Campaign disabled",
+        description: `Outbound ${campaignCreds.outboundId} is now ${next ? "active" : "inactive"}.`,
+      })
+    } catch (err) {
+      setIsCampaignOn(!next) // revert
+      const msg = err instanceof Error ? err.message : "Unexpected error."
+      toast({ title: "Toggle failed", description: msg, variant: "destructive" })
+    } finally {
+      setIsToggling(false)
+    }
+  }, [campaignCreds, isCampaignOn, isToggling, isCampaignChecking, toggleOutboundActive, toast])
+
+  /* ======== Load creds from localStorage ======== */
+  useEffect(() => {
+    const savedBearerToken = getFromLocalStorage(STORAGE_KEYS.BEARER_TOKEN)
+    const savedOutboundId = getFromLocalStorage(STORAGE_KEYS.OUTBOUND_ID)
+    if (savedBearerToken && savedOutboundId) {
+      const creds = { bearerToken: savedBearerToken, outboundId: savedOutboundId }
+      setCampaignCreds(creds)
+      // Check current ON/OFF status
+      fetchOutboundActive(savedOutboundId, savedBearerToken)
+    } else {
+      setIsCredentialsOpen(true)
+    }
+  }, [fetchOutboundActive])
+
+  /* ======== Credentials Submit ======== */
   const handleCredentialsSubmit = async () => {
     if (!bearerToken.trim() || !outboundId.trim()) {
       toast({
@@ -393,7 +462,7 @@ export default function OutboundCallingSystem() {
 
     setCredentialsSubmitting(true)
     try {
-      // Test the credentials by making a test API call
+      // Quick auth test by attempting a POST (will likely fail on number, that's ok)
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 15000)
       const testResponse = await fetch(`${API_BASE_URL}/Outbound/${outboundId.trim()}/Call`, {
@@ -403,96 +472,65 @@ export default function OutboundCallingSystem() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          to: "+1234567890", // Test phone number
-          callData: {
-            firstName: "Test",
-            lastName: "User",
-            email: "test@example.com",
-          },
+          to: "+1234567890",
+          callData: { firstName: "Test", lastName: "User", email: "test@example.com" },
         }),
         signal: controller.signal,
       })
       clearTimeout(timeoutId)
 
-      // Even if the call fails due to invalid phone number, we know the credentials work if we get a proper API response
       if (testResponse.status === 401 || testResponse.status === 403) {
         throw new Error("Invalid credentials. Please check your Bearer Token and Outbound ID.")
       }
 
-      // Save successful credentials to localStorage
       saveToLocalStorage(STORAGE_KEYS.BEARER_TOKEN, bearerToken.trim())
       saveToLocalStorage(STORAGE_KEYS.OUTBOUND_ID, outboundId.trim())
+      const creds = { bearerToken: bearerToken.trim(), outboundId: outboundId.trim() }
+      setCampaignCreds(creds)
 
       setIsCredentialsOpen(false)
       setBearerToken("")
       setOutboundId("")
-      toast({
-        title: "Success",
-        description: "Credentials saved successfully!",
-      })
+      toast({ title: "Success", description: "Credentials saved successfully!" })
+
+      // Read and show current status
+      await fetchOutboundActive(creds.outboundId, creds.bearerToken)
     } catch (error) {
-      console.error("Error testing credentials:", error)
-      const errorMessage =
-        error instanceof Error
-          ? error.name === "AbortError"
-            ? "Request timed out. Please try again."
-            : error.message
-          : "An unexpected error occurred."
-      toast({
-        title: "Error",
-        description: errorMessage,
-        variant: "destructive",
-      })
+      const msg =
+        error instanceof Error ? (error.name === "AbortError" ? "Request timed out. Please try again." : error.message) : "An unexpected error occurred."
+      toast({ title: "Error", description: msg, variant: "destructive" })
     } finally {
       setCredentialsSubmitting(false)
     }
   }
 
-  // Open credentials modal for editing
-  const handleEditCredentials = () => {
-    const savedBearerToken = getFromLocalStorage(STORAGE_KEYS.BEARER_TOKEN)
-    const savedOutboundId = getFromLocalStorage(STORAGE_KEYS.OUTBOUND_ID)
-    setBearerToken(savedBearerToken || "")
-    setOutboundId(savedOutboundId || "")
-    setIsCredentialsOpen(true)
-  }
+ 
 
-  // Clear stored credentials
   const clearStoredCredentials = () => {
     clearLeadsStorage()
-    toast({
-      title: "Cleared",
-      description: "Stored credentials have been cleared.",
-    })
+    setCampaignCreds(null)
+    setIsCampaignOn(null)
+    toast({ title: "Cleared", description: "Stored credentials have been cleared." })
   }
 
-  // Handle form input changes
+  /* ======== Lead form handlers ======== */
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target
     setFormData((prev) => ({ ...prev, [name]: value }))
   }
+  const handleBulkDataChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => setBulkData(e.target.value)
 
-  // Handle bulk data input changes
-  const handleBulkDataChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setBulkData(e.target.value)
-  }
-
-  // Handle CSV file upload
+  /* ======== CSV Upload ======== */
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
 
     if (!file.name.toLowerCase().endsWith(".csv")) {
-      toast({
-        title: "Invalid file type",
-        description: "Please upload a CSV file.",
-        variant: "destructive",
-      })
+      toast({ title: "Invalid file type", description: "Please upload a CSV file.", variant: "destructive" })
       return
     }
 
     setCsvFile(file)
-    // Read and preview the file
     const reader = new FileReader()
     reader.onload = (event) => {
       const text = event.target?.result as string
@@ -503,14 +541,9 @@ export default function OutboundCallingSystem() {
     reader.readAsText(file)
   }
 
-  // Process CSV file import
   const handleCsvImport = () => {
     if (!csvFile) {
-      toast({
-        title: "No file selected",
-        description: "Please select a CSV file to import.",
-        variant: "destructive",
-      })
+      toast({ title: "No file selected", description: "Please select a CSV file to import.", variant: "destructive" })
       return
     }
 
@@ -520,44 +553,29 @@ export default function OutboundCallingSystem() {
         const text = event.target?.result as string
         const lines = text.trim().split("\n")
         if (lines.length < 2) {
-          toast({
-            title: "Invalid CSV",
-            description: "CSV file must contain at least a header and one data row.",
-            variant: "destructive",
-          })
+          toast({ title: "Invalid CSV", description: "CSV must have at least a header and one row.", variant: "destructive" })
           return
         }
 
-        // Parse header to find column indices
         const headers = lines[0].split(",").map((h) => h.trim().toLowerCase().replace(/"/g, ""))
-
-        // Find column indices for name, email, phone
-        const firstNameIndex = headers.findIndex(
-          (h) => (h.includes("first") && h.includes("name")) || h === "firstname",
-        )
+        const firstNameIndex = headers.findIndex((h) => (h.includes("first") && h.includes("name")) || h === "firstname")
         const lastNameIndex = headers.findIndex((h) => (h.includes("last") && h.includes("name")) || h === "lastname")
         const nameIndex = headers.findIndex((h) => h === "name" && firstNameIndex === -1)
         const emailIndex = headers.findIndex((h) => h.includes("email"))
         const phoneIndex = headers.findIndex((h) => h.includes("phone") || h.includes("mobile") || h.includes("number"))
 
         if ((firstNameIndex === -1 && nameIndex === -1) || phoneIndex === -1) {
-          toast({
-            title: "Missing required columns",
-            description: "CSV must contain name (or first/last name) and phone columns.",
-            variant: "destructive",
-          })
+          toast({ title: "Missing required columns", description: "CSV must contain name (or first/last) and phone.", variant: "destructive" })
           return
         }
 
         const newLeads: Lead[] = []
-        // Process data rows
         for (let i = 1; i < lines.length; i++) {
           const row = lines[i].split(",").map((cell) => cell.trim().replace(/"/g, ""))
           if (row.length < headers.length) continue
 
           let firstName = ""
           let lastName = ""
-
           if (firstNameIndex !== -1 && lastNameIndex !== -1) {
             firstName = row[firstNameIndex] || ""
             lastName = row[lastNameIndex] || ""
@@ -566,7 +584,6 @@ export default function OutboundCallingSystem() {
             firstName = fullName[0] || ""
             lastName = fullName.slice(1).join(" ") || ""
           }
-
           const email = emailIndex !== -1 ? row[emailIndex] || "" : ""
           const phoneNumber = row[phoneIndex] || ""
 
@@ -583,11 +600,7 @@ export default function OutboundCallingSystem() {
         }
 
         if (newLeads.length === 0) {
-          toast({
-            title: "No valid leads found",
-            description: "Please check your CSV format and try again.",
-            variant: "destructive",
-          })
+          toast({ title: "No valid leads found", description: "Please check your CSV format and try again.", variant: "destructive" })
           return
         }
 
@@ -595,70 +608,36 @@ export default function OutboundCallingSystem() {
         setCsvFile(null)
         setCsvPreview([])
         setIsBulkImportOpen(false)
-        toast({
-          title: "CSV import successful",
-          description: `${newLeads.length} leads have been imported from CSV.`,
-        })
-      } catch (error) {
-        console.log(error)
-        toast({
-          title: "Import failed",
-          description: "There was an error processing your CSV file. Please check the format and try again.",
-          variant: "destructive",
-        })
+        toast({ title: "CSV import successful", description: `${newLeads.length} leads have been imported from CSV.` })
+      } catch {
+        toast({ title: "Import failed", description: "Error processing your CSV file.", variant: "destructive" })
       }
     }
     reader.readAsText(csvFile)
   }
 
-  // Reset form data
-  const resetForm = () => {
-    setFormData({
-      firstName: "",
-      lastName: "",
-      email: "",
-      phoneNumber: "",
-    })
-  }
+  /* ======== Manual add + bulk paste ======== */
+  const resetForm = () => setFormData({ firstName: "", lastName: "", email: "", phoneNumber: "" })
 
-  // Add a single lead
   const handleAddLead = () => {
-    // Basic validation
     if (!formData.firstName || !formData.lastName || !formData.phoneNumber) {
-      toast({
-        title: "Missing information",
-        description: "Please fill in all required fields.",
-        variant: "destructive",
-      })
+      toast({ title: "Missing information", description: "Please fill in all required fields.", variant: "destructive" })
       return
     }
-
-    // Add new lead
-    const newLead: Lead = {
-      id: crypto.randomUUID(),
-      ...formData,
-      status: "pending",
-    }
-
+    const newLead: Lead = { id: crypto.randomUUID(), ...formData, status: "pending" }
     setLeads((prev) => [...prev, newLead])
     resetForm()
     setIsAddLeadOpen(false)
-    toast({
-      title: "Lead added",
-      description: `${newLead.firstName} ${newLead.lastName} has been added to your leads.`,
-    })
+    toast({ title: "Lead added", description: `${newLead.firstName} ${newLead.lastName} has been added.` })
   }
 
-  // Process bulk import (pasted data)
   const handleBulkImport = () => {
     try {
-      // Split by lines and process
       const lines = bulkData.trim().split("\n")
-      // Skip header if it exists
       const startIndex =
-        lines[0].toLowerCase().includes("first") ||
-        lines[0].toLowerCase().includes("name") ||
-        lines[0].toLowerCase().includes("email")
+        lines[0]?.toLowerCase().includes("first") ||
+        lines[0]?.toLowerCase().includes("name") ||
+        lines[0]?.toLowerCase().includes("email")
           ? 1
           : 0
 
@@ -666,10 +645,7 @@ export default function OutboundCallingSystem() {
       for (let i = startIndex; i < lines.length; i++) {
         const line = lines[i].trim()
         if (!line) continue
-
-        // Assume CSV format: firstName,lastName,email,phoneNumber
         const [firstName, lastName, email, phoneNumber] = line.split(",").map((item) => item.trim())
-
         if (firstName && lastName && phoneNumber) {
           newLeads.push({
             id: crypto.randomUUID(),
@@ -683,49 +659,32 @@ export default function OutboundCallingSystem() {
       }
 
       if (newLeads.length === 0) {
-        toast({
-          title: "No valid leads found",
-          description: "Please check your data format and try again.",
-          variant: "destructive",
-        })
+        toast({ title: "No valid leads found", description: "Please check your data format and try again.", variant: "destructive" })
         return
       }
 
       setLeads((prev) => [...prev, ...newLeads])
       setBulkData("")
       setIsBulkImportOpen(false)
-      toast({
-        title: "Bulk import successful",
-        description: `${newLeads.length} leads have been imported.`,
-      })
-    } catch (error) {
-      console.log(error)
-      toast({
-        title: "Import failed",
-        description: "There was an error processing your data. Please check the format and try again.",
-        variant: "destructive",
-      })
+      toast({ title: "Bulk import successful", description: `${newLeads.length} leads have been imported.` })
+    } catch {
+      toast({ title: "Import failed", description: "Error processing your data.", variant: "destructive" })
     }
   }
 
-  // Make an outbound call using localStorage credentials
+  /* ======== Make a call ======== */
   const makeCall = async (lead: Lead) => {
     const savedBearerToken = getFromLocalStorage(STORAGE_KEYS.BEARER_TOKEN)
     const savedOutboundId = getFromLocalStorage(STORAGE_KEYS.OUTBOUND_ID)
 
     if (!savedBearerToken || !savedOutboundId) {
-      toast({
-        title: "Credentials required",
-        description: "Please configure your API credentials first.",
-        variant: "destructive",
-      })
+      toast({ title: "Credentials required", description: "Please configure your API credentials first.", variant: "destructive" })
       setIsCredentialsOpen(true)
       return false
     }
 
     setIsLoading(true)
     try {
-      // Step 1: Create a call request
       const createResponse = await fetch(`${API_BASE_URL}/Outbound/${savedOutboundId}/Call`, {
         method: "POST",
         headers: {
@@ -734,11 +693,7 @@ export default function OutboundCallingSystem() {
         },
         body: JSON.stringify({
           to: lead.phoneNumber,
-          callData: {
-            firstName: lead.firstName,
-            lastName: lead.lastName,
-            email: lead.email,
-          },
+          callData: { firstName: lead.firstName, lastName: lead.lastName, email: lead.email },
         }),
       })
 
@@ -765,19 +720,13 @@ export default function OutboundCallingSystem() {
       }
 
       const createData = await createResponse.json()
-      console.log("Call Request Created:", createData)
-
-      // Ensure we have a valid request ID from the response
-      if (!createData.id) {
-        throw new Error("No request ID received from API")
-      }
+      if (!createData.id) throw new Error("No request ID received from API")
 
       const requestId = createData.id
 
-      // Save call info with request ID to localStorage
       const callInfo = {
         id: requestId,
-        requestId: requestId,
+        requestId,
         from: createData.from || "Unknown",
         to: createData.to || lead.phoneNumber,
         leadName: `${lead.firstName} ${lead.lastName}`,
@@ -786,26 +735,18 @@ export default function OutboundCallingSystem() {
         conversationStatus: "In Call Queue",
         queuePosition: createData.queuePosition || 0,
       }
-
       const existingCalls = JSON.parse(localStorage.getItem("outboundCalls") || "[]")
       existingCalls.push(callInfo)
       localStorage.setItem("outboundCalls", JSON.stringify(existingCalls))
 
-      // Update lead status with the request ID
-      setLeads(leads.map((l) => (l.id === lead.id ? { ...l, status: "called", callId: requestId } : l)))
-
-      toast({
-        title: "Call initiated",
-        description: `Call to ${lead.firstName} ${lead.lastName} has been initiated. Request ID: ${requestId}`,
-      })
-
+      setLeads((prev) => prev.map((l) => (l.id === lead.id ? { ...l, status: "called", callId: requestId } : l)))
+      toast({ title: "Call initiated", description: `Call to ${lead.firstName} ${lead.lastName} started. Request ID: ${requestId}` })
       return true
     } catch (error) {
-      console.error("Call failed:", error)
-      setLeads(leads.map((l) => (l.id === lead.id ? { ...l, status: "failed" } : l)))
+      setLeads((prev) => prev.map((l) => (l.id === lead.id ? { ...l, status: "failed" } : l)))
       toast({
         title: "Call failed",
-        description: `There was an error initiating the call: ${error instanceof Error ? error.message : "Unknown error"}`,
+        description: error instanceof Error ? error.message : "Unknown error",
         variant: "destructive",
       })
       return false
@@ -814,174 +755,86 @@ export default function OutboundCallingSystem() {
     }
   }
 
-  // Remove a lead
-  const removeLead = (id: string) => {
-    setLeads(leads.filter((lead) => lead.id !== id))
-    setSelectedLeads((prev) => {
-      const newSet = new Set(prev)
-      newSet.delete(id)
-      return newSet
-    })
-    toast({
-      title: "Lead removed",
-      description: "The lead has been removed from your list.",
-    })
-  }
-
-  // Toggle lead selection
+  /* ======== Bulk Call Flow ======== */
   const toggleLeadSelection = (id: string) => {
     setSelectedLeads((prev) => {
-      const newSet = new Set(prev)
-      if (newSet.has(id)) {
-        newSet.delete(id)
-      } else {
-        newSet.add(id)
-      }
-      return newSet
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
     })
   }
 
-  // Toggle select all leads
   const toggleSelectAll = () => {
     if (selectAll) {
       setSelectedLeads(new Set())
     } else {
-      const pendingLeadIds = leads.filter((lead) => lead.status === "pending").map((lead) => lead.id)
+      const pendingLeadIds = leads.filter((l) => l.status === "pending").map((l) => l.id)
       setSelectedLeads(new Set(pendingLeadIds))
     }
-    setSelectAll(!selectAll)
+    setSelectAll((s) => !s)
   }
 
-  // Start bulk call process
   const startBulkCall = () => {
     if (!isConfigured) {
-      toast({
-        title: "Credentials required",
-        description: "Please configure your API credentials first.",
-        variant: "destructive",
-      })
+      toast({ title: "Credentials required", description: "Please configure your API credentials first.", variant: "destructive" })
       setIsCredentialsOpen(true)
       return
     }
-
     if (selectedLeads.size === 0) {
-      toast({
-        title: "No leads selected",
-        description: "Please select at least one lead to call.",
-        variant: "destructive",
-      })
+      toast({ title: "No leads selected", description: "Please select at least one lead to call.", variant: "destructive" })
       return
     }
-
-    const selectedLeadsList = leads.filter((lead) => selectedLeads.has(lead.id) && lead.status === "pending")
-
-    if (selectedLeadsList.length === 0) {
-      toast({
-        title: "No valid leads",
-        description: "All selected leads have already been called.",
-        variant: "destructive",
-      })
+    const selected = leads.filter((l) => selectedLeads.has(l.id) && l.status === "pending")
+    if (selected.length === 0) {
+      toast({ title: "No valid leads", description: "All selected leads have already been called.", variant: "destructive" })
       return
     }
-
-    setBulkCallState({
-      inProgress: true,
-      currentIndex: 0,
-      totalCalls: selectedLeadsList.length,
-      timeframe: bulkCallState.timeframe,
-      paused: false,
-    })
-
-    bulkCallQueueRef.current = [...selectedLeadsList]
-
+    setBulkCallState((prev) => ({ ...prev, inProgress: true, currentIndex: 0, totalCalls: selected.length, paused: false }))
+    bulkCallQueueRef.current = [...selected]
     processBulkCallQueue()
     setIsBulkCallOpen(false)
     toast({
       title: "Bulk call started",
-      description: `Starting calls to ${selectedLeadsList.length} leads with ${bulkCallState.timeframe} seconds between calls.`,
+      description: `Starting ${selected.length} calls with ${bulkCallState.timeframe}s between calls.`,
     })
   }
 
-  // Process the bulk call queue
   const processBulkCallQueue = async () => {
-    if (bulkCallQueueRef.current.length === 0 || bulkCallState.paused) {
-      return
-    }
-
+    if (bulkCallQueueRef.current.length === 0 || bulkCallState.paused) return
     const lead = bulkCallQueueRef.current.shift()
     if (!lead) return
-
     await makeCall(lead)
-
-    setBulkCallState((prev) => ({
-      ...prev,
-      currentIndex: prev.currentIndex + 1,
-    }))
+    setBulkCallState((prev) => ({ ...prev, currentIndex: prev.currentIndex + 1 }))
 
     if (bulkCallQueueRef.current.length > 0 && !bulkCallState.paused) {
       bulkCallTimerRef.current = setTimeout(processBulkCallQueue, bulkCallState.timeframe * 1000)
     } else {
       if (bulkCallQueueRef.current.length === 0) {
-        setBulkCallState((prev) => ({
-          ...prev,
-          inProgress: false,
-        }))
-        toast({
-          title: "Bulk call completed",
-          description: `Successfully completed all ${bulkCallState.totalCalls} calls.`,
-        })
+        setBulkCallState((prev) => ({ ...prev, inProgress: false }))
+        toast({ title: "Bulk call completed", description: `Completed all ${bulkCallState.totalCalls} calls.` })
       }
     }
   }
 
-  // Pause bulk call process
   const pauseBulkCall = () => {
-    setBulkCallState((prev) => ({
-      ...prev,
-      paused: true,
-    }))
-    if (bulkCallTimerRef.current) {
-      clearTimeout(bulkCallTimerRef.current)
-    }
-    toast({
-      title: "Bulk call paused",
-      description: `Paused after ${bulkCallState.currentIndex} of ${bulkCallState.totalCalls} calls.`,
-    })
+    setBulkCallState((prev) => ({ ...prev, paused: true }))
+    if (bulkCallTimerRef.current) clearTimeout(bulkCallTimerRef.current)
+    toast({ title: "Bulk call paused", description: `Paused after ${bulkCallState.currentIndex} of ${bulkCallState.totalCalls}.` })
   }
-
-  // Resume bulk call process
   const resumeBulkCall = () => {
-    setBulkCallState((prev) => ({
-      ...prev,
-      paused: false,
-    }))
+    setBulkCallState((prev) => ({ ...prev, paused: false }))
     processBulkCallQueue()
-    toast({
-      title: "Bulk call resumed",
-      description: `Resuming with ${bulkCallQueueRef.current.length} calls remaining.`,
-    })
+    toast({ title: "Bulk call resumed", description: `Resuming with ${bulkCallQueueRef.current.length} calls remaining.` })
   }
-
-  // Cancel bulk call process
   const cancelBulkCall = () => {
-    setBulkCallState({
-      inProgress: false,
-      currentIndex: 0,
-      totalCalls: 0,
-      timeframe: bulkCallState.timeframe,
-      paused: false,
-    })
+    setBulkCallState((prev) => ({ ...prev, inProgress: false, currentIndex: 0, totalCalls: 0, paused: false }))
     bulkCallQueueRef.current = []
-    if (bulkCallTimerRef.current) {
-      clearTimeout(bulkCallTimerRef.current)
-    }
-    toast({
-      title: "Bulk call cancelled",
-      description: "The bulk call operation has been cancelled.",
-    })
+    if (bulkCallTimerRef.current) clearTimeout(bulkCallTimerRef.current)
+    toast({ title: "Bulk call cancelled", description: "The bulk call operation has been cancelled." })
   }
 
-  // ---------------- CSV downloaders (Template + Export) ----------------
+  /* ======== CSV & Excel downloads ======== */
   const downloadCsvTemplate = () => {
     const headers = ["firstName", "lastName", "email", "phoneNumber"].join(",")
     const rows = [
@@ -992,6 +845,32 @@ export default function OutboundCallingSystem() {
       .join("\n")
     const csv = `${headers}\n${rows}\n`
     downloadBlob(csv, "leads-template.csv")
+  }
+
+  const downloadExcelTemplate = () => {
+    const headers = ["firstName", "lastName", "email", "phoneNumber"]
+    const data = [
+      headers,
+      ["John", "Doe", "john@example.com", "+1234567890"],
+      ["Jane", "Smith", "jane@example.com", "+0987654321"],
+    ]
+    const wb = XLSX.utils.book_new()
+    const ws = XLSX.utils.aoa_to_sheet(data)
+    // Set nice column widths
+    ws["!cols"] = [{ wch: 14 }, { wch: 14 }, { wch: 28 }, { wch: 16 }]
+    XLSX.utils.book_append_sheet(wb, ws, "Leads Template")
+    const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" })
+    const blob = new Blob([wbout], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = "leads-template.xlsx"
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
   }
 
   const exportLeadsCsv = () => {
@@ -1007,17 +886,15 @@ export default function OutboundCallingSystem() {
     const date = new Date().toISOString().split("T")[0]
     downloadBlob(csv, `leads-${date}.csv`)
   }
-  // --------------------------------------------------------------------
 
-  // Clean up on unmount
+  /* ======== Cleanup timer ======== */
   useEffect(() => {
     return () => {
-      if (bulkCallTimerRef.current) {
-        clearTimeout(bulkCallTimerRef.current)
-      }
+      if (bulkCallTimerRef.current) clearTimeout(bulkCallTimerRef.current)
     }
   }, [])
 
+  /* ======== UI ======== */
   return (
     <div className="container mx-auto py-8">
       <Toaster />
@@ -1027,19 +904,57 @@ export default function OutboundCallingSystem() {
             <h1 className="text-3xl font-bold">Outbound Calling System</h1>
             <p className="text-muted-foreground mt-2">Manage your leads and make outbound calls</p>
           </div>
+
           <div className="flex items-center space-x-2">
-            <Button variant="outline" size="sm" onClick={handleEditCredentials}>
-              <Settings className="mr-2 h-4 w-4" />
-              {isConfigured ? "Edit Credentials" : "Setup Credentials"}
-            </Button>
+            
             {isConfigured && (
               <Button variant="destructive" size="sm" onClick={clearStoredCredentials}>
-                <X className="mr-2 h-4 w-4" />
+                <XIcon className="mr-2 h-4 w-4" />
                 Clear
               </Button>
             )}
+
+            {/* Segmented toggle - wired to campaignCreds */}
+            <button
+              type="button"
+              onClick={handleCampaign}
+              role="switch"
+              aria-checked={!!isCampaignOn}
+              aria-label="Toggle outbound campaign"
+              disabled={isToggling || isCampaignChecking || !campaignCreds || isCampaignOn === null}
+              title={
+                isCampaignOn === null ? "Status unknown"
+                  : isCampaignOn ? "Campaign is ON"
+                  : "Campaign is OFF"
+              }
+              className={cn(
+                "relative inline-flex h-8 w-full sm:w-36 select-none items-center my-1 rounded-full",
+                "bg-neutral-100 border border-neutral-200 shadow-sm p-1",
+                "transition-colors focus:outline-none focus:ring-2 focus:ring-black/5",
+                (isToggling || isCampaignChecking || !campaignCreds || isCampaignOn === null) && "opacity-60 cursor-not-allowed",
+              )}
+            >
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "absolute top-1 bottom-1 left-1 w-[calc(50%-4px)] rounded-full transition-transform duration-200 shadow",
+                  isCampaignOn === null ? "bg-neutral-400/80" : isCampaignOn ? "bg-green-500" : "bg-red-500",
+                  isCampaignOn ? "translate-x-0" : "translate-x-[calc(100%+4px)]",
+                  "z-0",
+                )}
+              />
+              <div className="relative z-10 grid w-full grid-cols-2 text-xs sm:text-sm font-medium">
+                <span className={cn("text-center transition-colors", isCampaignOn ? "text-white" : "text-neutral-600")}>
+                  {isCampaignChecking ? "…" : "On"}
+                </span>
+                <span className={cn("text-center transition-colors", !isCampaignOn ? "text-white" : "text-neutral-600")}>
+                  {isCampaignChecking ? "…" : "Off"}
+                </span>
+              </div>
+            </button>
           </div>
         </div>
+
         {!isConfigured && (
           <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
             <div className="flex items-center">
@@ -1061,12 +976,9 @@ export default function OutboundCallingSystem() {
           <Button variant="outline" onClick={() => setIsBulkImportOpen(true)}>
             <Upload className="mr-2 h-4 w-4" /> Bulk Import
           </Button>
-
-          {/* New: Export leads CSV button */}
           <Button variant="outline" onClick={exportLeadsCsv} disabled={leads.length === 0}>
             <Download className="mr-2 h-4 w-4" /> Export CSV
           </Button>
-
           <Button
             variant="secondary"
             onClick={() => setIsBulkCallOpen(true)}
@@ -1082,7 +994,7 @@ export default function OutboundCallingSystem() {
         </div>
       </div>
 
-      {/* Bulk Call Progress Bar */}
+      {/* Bulk progress */}
       {bulkCallState.inProgress && (
         <div className="mb-6 p-4 border rounded-lg bg-slate-50">
           <div className="flex justify-between items-center mb-2">
@@ -1098,7 +1010,7 @@ export default function OutboundCallingSystem() {
                 </Button>
               )}
               <Button size="sm" variant="destructive" onClick={cancelBulkCall}>
-                <X className="h-4 w-4 mr-1" /> Cancel
+                <XIcon className="h-4 w-4 mr-1" /> Cancel
               </Button>
             </div>
           </div>
@@ -1115,6 +1027,7 @@ export default function OutboundCallingSystem() {
         </div>
       )}
 
+      {/* Leads table */}
       {leads.length > 0 ? (
         <div className="border rounded-lg">
           <Table>
@@ -1141,20 +1054,19 @@ export default function OutboundCallingSystem() {
                       aria-label={`Select ${lead.firstName} ${lead.lastName}`}
                     />
                   </TableCell>
-                  <TableCell>
-                    {lead.firstName} {lead.lastName}
-                  </TableCell>
+                  <TableCell>{lead.firstName} {lead.lastName}</TableCell>
                   <TableCell>{lead.email}</TableCell>
                   <TableCell>{lead.phoneNumber}</TableCell>
                   <TableCell>
                     <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                      className={cn(
+                        "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium",
                         lead.status === "called"
                           ? "bg-green-100 text-green-800"
                           : lead.status === "failed"
                             ? "bg-red-100 text-red-800"
-                            : "bg-blue-100 text-blue-800"
-                      }`}
+                            : "bg-blue-100 text-blue-800",
+                      )}
                     >
                       {lead.status === "called" ? "Called" : lead.status === "failed" ? "Failed" : "Pending"}
                     </span>
@@ -1168,28 +1080,28 @@ export default function OutboundCallingSystem() {
                               size="sm"
                               variant="outline"
                               onClick={() => makeCall(lead)}
-                              disabled={
-                                isLoading || lead.status === "called" || bulkCallState.inProgress || !isConfigured
-                              }
+                              disabled={isLoading || lead.status === "called" || bulkCallState.inProgress || !isConfigured}
                             >
                               <Phone className="h-4 w-4" />
                             </Button>
                           </TooltipTrigger>
-                          <TooltipContent>
-                            <p>Call this lead</p>
-                          </TooltipContent>
+                          <TooltipContent><p>Call this lead</p></TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
                       <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <Button size="sm" variant="ghost" onClick={() => removeLead(lead.id)}>
-                              <X className="h-4 w-4" />
+                            <Button size="sm" variant="ghost" onClick={() => {
+                              setLeads((prev) => prev.filter((l) => l.id !== lead.id))
+                              setSelectedLeads((prev) => {
+                                const n = new Set(prev); n.delete(lead.id); return n
+                              })
+                              toast({ title: "Lead removed", description: "The lead has been removed from your list." })
+                            }}>
+                              <XIcon className="h-4 w-4" />
                             </Button>
                           </TooltipTrigger>
-                          <TooltipContent>
-                            <p>Remove lead</p>
-                          </TooltipContent>
+                          <TooltipContent><p>Remove lead</p></TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
                     </div>
@@ -1248,19 +1160,14 @@ export default function OutboundCallingSystem() {
               <h4 className="font-medium text-blue-800 flex items-center">
                 <Settings className="h-4 w-4 mr-2" /> Need Help?
               </h4>
-              <p className="text-sm text-blue-700 mt-1">
-                Contact support if you need assistance finding your API credentials.
-              </p>
+              <p className="text-sm text-blue-700 mt-1">Contact support if you need assistance finding your API credentials.</p>
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsCredentialsOpen(false)} disabled={credentialsSubmitting}>
               Cancel
             </Button>
-            <Button
-              onClick={handleCredentialsSubmit}
-              disabled={!bearerToken.trim() || !outboundId.trim() || credentialsSubmitting}
-            >
+            <Button onClick={handleCredentialsSubmit} disabled={!bearerToken.trim() || !outboundId.trim() || credentialsSubmitting}>
               {credentialsSubmitting ? "Testing..." : isConfigured ? "Update Credentials" : "Save Credentials"}
             </Button>
           </DialogFooter>
@@ -1278,192 +1185,226 @@ export default function OutboundCallingSystem() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="firstName">First Name *</Label>
-                <Input
-                  id="firstName"
-                  name="firstName"
-                  value={formData.firstName}
-                  onChange={handleInputChange}
-                  placeholder="John"
-                  required
-                />
+                <Input id="firstName" name="firstName" value={formData.firstName} onChange={handleInputChange} placeholder="John" required />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="lastName">Last Name *</Label>
-                <Input
-                  id="lastName"
-                  name="lastName"
-                  value={formData.lastName}
-                  onChange={handleInputChange}
-                  placeholder="Doe"
-                  required
-                />
+                <Input id="lastName" name="lastName" value={formData.lastName} onChange={handleInputChange} placeholder="Doe" required />
               </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                name="email"
-                type="email"
-                value={formData.email}
-                onChange={handleInputChange}
-                placeholder="john.doe@example.com"
-              />
+              <Input id="email" name="email" type="email" value={formData.email} onChange={handleInputChange} placeholder="john.doe@example.com" />
             </div>
             <div className="space-y-2">
               <Label htmlFor="phoneNumber">Phone Number *</Label>
-              <Input
-                id="phoneNumber"
-                name="phoneNumber"
-                value={formData.phoneNumber}
-                onChange={handleInputChange}
-                placeholder="+1234567890"
-                required
-              />
+              <Input id="phoneNumber" name="phoneNumber" value={formData.phoneNumber} onChange={handleInputChange} placeholder="+1234567890" required />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsAddLeadOpen(false)}>
-              Cancel
-            </Button>
+            <Button variant="outline" onClick={() => setIsAddLeadOpen(false)}>Cancel</Button>
             <Button onClick={handleAddLead}>Add Lead</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* Bulk Import Modal */}
-      <Dialog open={isBulkImportOpen} onOpenChange={setIsBulkImportOpen}>
-        <DialogContent className="sm:max-w-[600px]">
-          <DialogHeader>
-            <DialogTitle>Bulk Import Leads</DialogTitle>
-            <DialogDescription>
-              Paste your lead data in CSV format: firstName,lastName,email,phoneNumber
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <Tabs defaultValue="paste">
-              <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="paste">Paste Data</TabsTrigger>
-                <TabsTrigger value="upload">Upload CSV</TabsTrigger>
-                <TabsTrigger value="format">Format Guide</TabsTrigger>
-              </TabsList>
-              <TabsContent value="paste" className="space-y-4">
-                <Textarea
-                  placeholder="John,Doe,john@example.com,+1234567890"
-                  className="min-h-[200px]"
-                  value={bulkData}
-                  onChange={handleBulkDataChange}
+    <Dialog open={isBulkImportOpen} onOpenChange={setIsBulkImportOpen}>
+  <DialogContent
+    className="
+      w-[calc(100vw-2rem)] sm:max-w-[600px]
+      max-h-[85vh] overflow-y-auto
+      p-4 sm:p-6
+    "
+  >
+    <DialogHeader>
+      <DialogTitle>Bulk Import Leads</DialogTitle>
+      <DialogDescription>
+        Paste your lead data in CSV format: firstName,lastName,email,phoneNumber
+      </DialogDescription>
+    </DialogHeader>
+
+    <div className="grid gap-4 py-2 sm:py-4">
+      <Tabs defaultValue="paste">
+        {/* Tabs become 1 column on small screens */}
+        <TabsList className="grid w-full grid-cols-1 sm:grid-cols-3 gap-2">
+          <TabsTrigger value="paste">Paste Data</TabsTrigger>
+          <TabsTrigger value="upload">Upload CSV</TabsTrigger>
+          <TabsTrigger value="format">Format Guide</TabsTrigger>
+        </TabsList>
+
+        {/* Paste */}
+        <TabsContent value="paste" className="space-y-3 sm:space-y-4">
+          <Textarea
+            placeholder="John,Doe,john@example.com,+1234567890"
+            className="min-h-[160px] sm:min-h-[200px]"
+            value={bulkData}
+            onChange={handleBulkDataChange}
+          />
+          <p className="text-xs sm:text-sm text-muted-foreground">
+            Each line should contain one lead in the format:
+            {" "}firstName,lastName,email,phoneNumber
+          </p>
+        </TabsContent>
+
+        {/* Upload */}
+        <TabsContent value="upload" className="space-y-3 sm:space-y-4">
+          <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 sm:p-6">
+            <div className="text-center">
+              <Upload className="mx-auto h-10 w-10 sm:h-12 sm:w-12 text-gray-400" />
+              <div className="mt-3 sm:mt-4">
+                <label htmlFor="csv-upload" className="cursor-pointer">
+                  <span className="mt-2 block text-sm font-medium text-gray-900">
+                    Upload CSV file
+                  </span>
+                  <span className="mt-1 block text-xs sm:text-sm text-gray-500">
+                    Select a CSV file with name, email, and phone columns
+                  </span>
+                </label>
+                <input
+                  id="csv-upload"
+                  type="file"
+                  accept=".csv"
+                  onChange={handleFileUpload}
+                  className="hidden"
                 />
-                <p className="text-xs text-muted-foreground">
-                  Each line should contain one lead in the format: firstName,lastName,email,phoneNumber
-                </p>
-              </TabsContent>
-              <TabsContent value="upload" className="space-y-4">
-                <div className="border-2 border-dashed border-gray-300 rounded-lg p-6">
-                  <div className="text-center">
-                    <Upload className="mx-auto h-12 w-12 text-gray-400" />
-                    <div className="mt-4">
-                      <label htmlFor="csv-upload" className="cursor-pointer">
-                        <span className="mt-2 block text-sm font-medium text-gray-900">Upload CSV file</span>
-                        <span className="mt-1 block text-sm text-gray-500">
-                          Select a CSV file with name, email, and phone columns
-                        </span>
-                      </label>
-                      <input id="csv-upload" type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="mt-4 bg-transparent"
-                      onClick={() => document.getElementById("csv-upload")?.click()}
-                    >
-                      Choose File
-                    </Button>
-                  </div>
-                </div>
-                {csvFile && (
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium">Selected file: {csvFile.name}</p>
-                    {csvPreview.length > 0 && (
-                      <div className="border rounded-md p-3">
-                        <p className="text-xs text-muted-foreground mb-2">Preview (first 5 rows):</p>
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-xs">
-                            <tbody>
-                              {csvPreview.map((row, index) => (
-                                <tr key={index} className={index === 0 ? "font-medium bg-muted" : ""}>
-                                  {row.map((cell, cellIndex) => (
-                                    <td key={cellIndex} className="border px-2 py-1 truncate max-w-[100px]">
-                                      {cell}
-                                    </td>
-                                  ))}
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </TabsContent>
-              <TabsContent value="format">
-                <div className="space-y-4">
-                  <div>
-                    <h4 className="font-medium mb-2">Paste Data Format:</h4>
-                    <p className="text-sm mb-2">Your data should be in CSV format with the following columns:</p>
-                    <pre className="bg-muted p-4 rounded-md text-xs">
-                      firstName,lastName,email,phoneNumber
-                      {"\n"}John,Doe,john@example.com,+1234567890
-                      {"\n"}Jane,Smith,jane@example.com,+0987654321
-                    </pre>
-                  </div>
-                  <div>
-                    <h4 className="font-medium mb-2">CSV File Format:</h4>
-                    <p className="text-sm mb-2">Your CSV file can have any of these column combinations:</p>
-                    <ul className="text-sm space-y-1 ml-4">
-                      <li>
-                        • <code>firstName, lastName, email, phone</code>
-                      </li>
-                      <li>
-                        • <code>first name, last name, email, phone number</code>
-                      </li>
-                      <li>
-                        • <code>name, email, mobile</code>
-                      </li>
-                    </ul>
-                  </div>
-                  <div className="bg-amber-50 p-3 rounded-md">
-                    <h4 className="font-medium text-amber-800 flex items-center">
-                      <Clock className="h-4 w-4 mr-2" /> Important Notes
-                    </h4>
-                    <ul className="text-sm space-y-1 mt-2 text-amber-700">
-                      <li>• Calls will be made sequentially with the specified delay</li>
-                      <li>• You can pause or cancel the bulk call process at any time</li>
-                      <li>• Each call will update the lead status automatically</li>
-                    </ul>
-                  </div>
-                </div>
-              </TabsContent>
-            </Tabs>
+              </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                className="mt-4 bg-transparent w-full sm:w-auto"
+                onClick={() => document.getElementById("csv-upload")?.click()}
+              >
+                Choose File
+              </Button>
+            </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsBulkImportOpen(false)}>
-              Cancel
-            </Button>
 
-            {/* New: Download CSV template from modal */}
-            <Button type="button" variant="secondary" onClick={downloadCsvTemplate}>
-              <Download className="mr-2 h-4 w-4" />
-              Download CSV Template
-            </Button>
+          {csvFile && (
+            <div className="space-y-2">
+              <p className="text-sm font-medium break-all">
+                Selected file: {csvFile.name}
+              </p>
 
-            <Button onClick={bulkData ? handleBulkImport : handleCsvImport}>
-              {csvFile ? "Import from CSV" : "Import Leads"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+              {csvPreview.length > 0 && (
+                <div className="border rounded-md p-3">
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Preview (first 5 rows):
+                  </p>
+
+                  {/* Make the table horizontally scrollable on mobile */}
+                  <div className="overflow-x-auto -mx-1 sm:mx-0">
+                    <table className="min-w-[520px] w-full text-xs sm:text-sm">
+                      <tbody>
+                        {csvPreview.map((row, index) => (
+                          <tr
+                            key={index}
+                            className={index === 0 ? "font-medium bg-muted" : ""}
+                          >
+                            {row.map((cell, cellIndex) => (
+                              <td
+                                key={cellIndex}
+                                className="border px-2 py-1 truncate max-w-[120px]"
+                                title={cell}
+                              >
+                                {cell}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* Format guide */}
+        <TabsContent value="format">
+          <div className="space-y-4">
+            <div>
+              <h4 className="font-medium mb-2">Paste Data Format:</h4>
+              <p className="text-sm mb-2">
+                Your data should be in CSV format with the following columns:
+              </p>
+              <pre className="bg-muted p-3 sm:p-4 rounded-md text-xs overflow-x-auto">
+{`firstName,lastName,email,phoneNumber
+John,Doe,john@example.com,+1234567890
+Jane,Smith,jane@example.com,+0987654321`}
+              </pre>
+            </div>
+
+            <div>
+              <h4 className="font-medium mb-2">CSV File Format:</h4>
+              <p className="text-sm mb-2">
+                Your CSV file can have any of these column combinations:
+              </p>
+              <ul className="text-sm space-y-1 ml-4">
+                <li>• <code>firstName, lastName, email, phone</code></li>
+                <li>• <code>first name, last name, email, phone number</code></li>
+                <li>• <code>name, email, mobile</code></li>
+              </ul>
+            </div>
+
+            <div className="bg-amber-50 p-3 rounded-md">
+              <h4 className="font-medium text-amber-800 flex items-center">
+                <Clock className="h-4 w-4 mr-2" /> Important Notes
+              </h4>
+              <ul className="text-sm space-y-1 mt-2 text-amber-700">
+                <li>• Calls will be made sequentially with the specified delay</li>
+                <li>• You can pause or cancel the bulk call process at any time</li>
+                <li>• Each call will update the lead status automatically</li>
+              </ul>
+            </div>
+          </div>
+        </TabsContent>
+      </Tabs>
+    </div>
+
+    {/* Footer: stack on mobile, row on larger screens */}
+    <DialogFooter className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+      <Button
+        variant="outline"
+        onClick={() => setIsBulkImportOpen(false)}
+        className="w-full sm:w-auto"
+      >
+        Cancel
+      </Button>
+
+      <Button
+        type="button"
+        variant="secondary"
+        onClick={downloadCsvTemplate}
+        className="w-full sm:w-auto"
+      >
+        <Download className="mr-2 h-4 w-4" />
+        CSV Template
+      </Button>
+
+      {/* NEW: Excel template stays responsive too */}
+      <Button
+        type="button"
+        variant="secondary"
+        onClick={downloadExcelTemplate}
+        className="w-full sm:w-auto"
+      >
+        <Download className="mr-2 h-4 w-4" />
+         Excel Template
+      </Button>
+
+      <Button
+        onClick={bulkData ? handleBulkImport : handleCsvImport}
+        className="w-full sm:w-auto"
+      >
+        {csvFile ? "Import from CSV" : "Import Leads"}
+      </Button>
+    </DialogFooter>
+  </DialogContent>
+</Dialog>
+
 
       {/* Bulk Call Modal */}
       <Dialog open={isBulkCallOpen} onOpenChange={setIsBulkCallOpen}>
@@ -1477,12 +1418,8 @@ export default function OutboundCallingSystem() {
               <div>
                 <h3 className="font-medium mb-2">Selected Leads</h3>
                 <div className="bg-muted p-3 rounded-md">
-                  <p className="text-sm">
-                    <strong>{selectedLeads.size}</strong> leads selected for bulk calling
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Only leads with &quot;Pending&quot; status will be called
-                  </p>
+                  <p className="text-sm"><strong>{selectedLeads.size}</strong> leads selected for bulk calling</p>
+                  <p className="text-xs text-muted-foreground mt-1">Only leads with &quot;Pending&quot; status will be called</p>
                 </div>
               </div>
               <div className="space-y-3">
@@ -1498,9 +1435,7 @@ export default function OutboundCallingSystem() {
                   />
                   <span className="w-12 text-center font-medium">{bulkCallState.timeframe}s</span>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  Recommended: 5-10 seconds between calls to avoid overwhelming the system
-                </p>
+                <p className="text-xs text-muted-foreground">Recommended: 5–10 seconds between calls</p>
               </div>
               <div className="bg-amber-50 p-3 rounded-md">
                 <h4 className="font-medium text-amber-800 flex items-center">
@@ -1515,12 +1450,8 @@ export default function OutboundCallingSystem() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsBulkCallOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={startBulkCall} disabled={!isConfigured}>
-              Start Bulk Call
-            </Button>
+            <Button variant="outline" onClick={() => setIsBulkCallOpen(false)}>Cancel</Button>
+            <Button onClick={startBulkCall} disabled={!isConfigured}>Start Bulk Call</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

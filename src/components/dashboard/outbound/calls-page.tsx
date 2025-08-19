@@ -287,10 +287,22 @@ interface CallDetails {
   overallSentiment: number
 }
 
+// ADD under "Interfaces"
+interface CampaignData {
+  id: string
+  campaignName: string
+  outboundId: string
+  bearerToken: string
+  userId: string
+  createdAt: string
+  updatedAt: string
+}
+
 // ---------- LocalStorage utilities ----------
 const STORAGE_KEYS = {
   BEARER_TOKEN: "analytics_bearer_token",
   OUTBOUND_ID: "analytics_outbound_id",
+  CAMPAIGN_ID: "analytics_campaign_id", // NEW
 }
 
 const saveToLocalStorage = (key: string, value: string) => {
@@ -333,6 +345,8 @@ const clearCallsStorage = () => {
 // ---------- API Base URLs ----------
 const API_BASE_URL = "https://whitelabel-server.onrender.com/api/v1"
 const CALLS_API_BASE_URL = "https://api.nlpearl.ai/v1"
+// ADD next to your API base URLs
+const CAMPAIGNS_BASE_URL = "https://whitelabel-server.onrender.com"
 
 // ---------- Helpers ----------
 const getDefaultDateRange = () => {
@@ -471,10 +485,7 @@ const TagDots: React.FC<{ tags?: string[]; max?: number; className?: string }> =
           key={`${t}-${i}`}
           title={t}
           aria-label={t}
-          className={cn(
-            "h-5 w-5 rounded-full border-2 border-white shadow-sm",
-            tagBg(t),
-          )}
+          className={cn("h-5 w-5 rounded-full border-2 border-white shadow-sm", tagBg(t))}
         />
       ))}
       {remaining > 0 && (
@@ -519,12 +530,17 @@ const CallsPage = () => {
     searchInput: "",
   })
 
-  // Memoized values
-  const isConfigured = useMemo(() => {
+  // NEW: campaign state for Calls page
+  const [campaigns, setCampaigns] = useState<CampaignData[]>([])
+  const [selectedCampaign, setSelectedCampaign] = useState<CampaignData | null>(null)
+  const [campaignsLoading, setCampaignsLoading] = useState(false)
+
+  // CHANGE: make isConfigured a state (so it updates when we swap campaigns)
+  const [isConfigured, setIsConfigured] = useState<boolean>(() => {
     const savedBearerToken = getFromLocalStorage(STORAGE_KEYS.BEARER_TOKEN)
     const savedOutboundId = getFromLocalStorage(STORAGE_KEYS.OUTBOUND_ID)
     return !!(savedBearerToken && savedOutboundId)
-  }, [])
+  })
 
   const canSubmit = useMemo(() => {
     return authId.trim().length > 0 && token.trim().length > 0 && !submitting
@@ -656,6 +672,7 @@ const CallsPage = () => {
             error.message.includes("Outbound ID not found"))
         ) {
           clearCallsStorage()
+          setIsConfigured(false)
           setShowModal(true)
         }
       } finally {
@@ -706,6 +723,79 @@ const CallsPage = () => {
       }
     },
     [toast],
+  )
+
+  // NEW: fetch the user's campaigns (same endpoint your Overview page uses)
+  const fetchCampaigns = useCallback(
+    async (email: string, showToast = false) => {
+      if (!email) return []
+      setCampaignsLoading(true)
+      try {
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 10000)
+        const res = await fetch(
+          `${CAMPAIGNS_BASE_URL}/users/email/${encodeURIComponent(email)}/userdata`,
+          { signal: controller.signal, headers: { "Cache-Control": "no-cache" } },
+        )
+        clearTimeout(timeoutId)
+
+        if (!res.ok) {
+          if (res.status === 404) {
+            setCampaigns([])
+            setSelectedCampaign(null)
+            if (showToast) {
+              toast({ title: "No campaigns", description: "No campaigns found for this email.", variant: "destructive" })
+            }
+            return []
+          }
+          throw new Error(`HTTP error! status: ${res.status}`)
+        }
+
+        const data: CampaignData[] = await res.json()
+        const list = Array.isArray(data) ? data : []
+        setCampaigns(list)
+
+        if (list.length > 0) {
+          const savedId = getFromLocalStorage(STORAGE_KEYS.CAMPAIGN_ID)
+          const initial = savedId ? list.find((c) => c.id === savedId) : list[0]
+          if (initial) {
+            setSelectedCampaign(initial)
+            saveToLocalStorage(STORAGE_KEYS.CAMPAIGN_ID, initial.id)
+            saveToLocalStorage(STORAGE_KEYS.BEARER_TOKEN, initial.bearerToken)
+            saveToLocalStorage(STORAGE_KEYS.OUTBOUND_ID, initial.outboundId)
+            setIsConfigured(true)
+            await fetchCalls() // immediately refresh calls for the selected campaign
+          }
+        }
+        return data
+      } catch (err) {
+        console.error("Error fetching campaigns:", err)
+        toast({ title: "Error", description: "Failed to fetch campaigns.", variant: "destructive" })
+        setCampaigns([])
+        return []
+      } finally {
+        setCampaignsLoading(false)
+      }
+    },
+    [fetchCalls, toast],
+  )
+
+  // NEW: when user changes the campaign from the Select
+  const handleCampaignChange = useCallback(
+    async (campaignId: string) => {
+      const campaign = campaigns.find((c) => c.id === campaignId)
+      if (!campaign) return
+      setSelectedCampaign(campaign)
+
+      saveToLocalStorage(STORAGE_KEYS.CAMPAIGN_ID, campaign.id)
+      saveToLocalStorage(STORAGE_KEYS.BEARER_TOKEN, campaign.bearerToken)
+      saveToLocalStorage(STORAGE_KEYS.OUTBOUND_ID, campaign.outboundId)
+      setIsConfigured(true)
+
+      await fetchCalls()
+      toast({ title: "Campaign selected", description: campaign.campaignName })
+    },
+    [campaigns, fetchCalls, toast],
   )
 
   // Update credentials and save to localStorage
@@ -770,6 +860,7 @@ const CallsPage = () => {
       setShowModal(false)
       setAuthId("")
       setToken("")
+      setIsConfigured(true)
       toast({
         title: "Success",
         description: "Credentials saved successfully!",
@@ -816,20 +907,27 @@ const CallsPage = () => {
     [filters, fetchCalls],
   )
 
-  // Manual refresh
+  // Manual refresh (also refresh campaigns)
   const handleRefresh = useCallback(async () => {
     if (refreshing) return
     setRefreshing(true)
+
     if (user?.id) {
       await fetchUserData(user.id, false)
     }
+
+    const email = userData?.email || user?.emailAddresses?.[0]?.emailAddress || ""
+    if (email) {
+      await fetchCampaigns(email) // refresh the campaigns too
+    }
+
     await fetchCalls()
     setRefreshing(false)
     toast({
       title: "Refreshed",
       description: "Data has been refreshed.",
     })
-  }, [refreshing, user?.id, fetchUserData, fetchCalls, toast])
+  }, [refreshing, user?.id, userData?.email, user?.emailAddresses, fetchUserData, fetchCampaigns, fetchCalls, toast])
 
   // Open modal for editing credentials
   const handleEditCredentials = useCallback(() => {
@@ -866,11 +964,13 @@ const CallsPage = () => {
     setCallDetails(null)
   }, [])
 
-  // Clear stored credentials
+  // Clear stored credentials (also forget campaign via STORAGE_KEYS iteration)
   const clearStoredCredentials = useCallback(() => {
     clearCallsStorage()
     setCalls([])
     setTotalCalls(0)
+    setIsConfigured(false)
+    setSelectedCampaign(null)
     toast({
       title: "Cleared",
       description: "Stored credentials have been cleared.",
@@ -884,14 +984,22 @@ const CallsPage = () => {
     }
   }, [isLoaded, user?.id, fetchUserData])
 
-  // Load calls if credentials are available
+  // NEW: try to load campaigns once we know the user's email
   useEffect(() => {
-    if (isLoaded && isConfigured) {
+    if (!isLoaded) return
+    const email = userData?.email || user?.emailAddresses?.[0]?.emailAddress || ""
+    if (email) fetchCampaigns(email)
+  }, [isLoaded, userData?.email, user?.emailAddresses, fetchCampaigns])
+
+  // Tweak the “credentials required” effect (avoid popping modal while campaigns load)
+  useEffect(() => {
+    if (!isLoaded) return
+    if (isConfigured) {
       fetchCalls()
-    } else if (isLoaded && !isConfigured) {
+    } else if (!campaignsLoading && campaigns.length === 0) {
       setShowModal(true)
     }
-  }, [isLoaded, isConfigured, fetchCalls])
+  }, [isLoaded, isConfigured, campaignsLoading, campaigns.length, fetchCalls])
 
   // Loading state
   if (!isLoaded) {
@@ -956,7 +1064,7 @@ const CallsPage = () => {
                   <RefreshCw className={`h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2 ${refreshing ? "animate-spin" : ""}`} />
                   <span className="hidden sm:inline">Refresh</span>
                 </Button>
-                <Button
+                {/* <Button
                   variant="outline"
                   size="sm"
                   onClick={handleEditCredentials}
@@ -965,7 +1073,7 @@ const CallsPage = () => {
                   <Edit className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
                   <span className="hidden sm:inline">{isConfigured ? "Edit Credentials" : "Add Credentials"}</span>
                   <span className="sm:hidden">Config</span>
-                </Button>
+                </Button> */}
                 {isConfigured && (
                   <Button
                     variant="destructive"
@@ -1026,15 +1134,39 @@ const CallsPage = () => {
               </div>
             </div>
           ) : (
-            <div className="bg-white border-b border-gray-200 p-4">
-              <div className="text-center">
-                <p className="text-gray-500 mb-2">No user data found.</p>
-                <Button size="sm" onClick={() => user?.id && fetchUserData(user.id)}>
-                  Try Again
-                </Button>
+            <div></div>
+          )}
+
+          {/* Campaign Selection (Calls page only) */}
+          {campaignsLoading ? (
+            <div className="bg-white border-b border-gray-200 p-3 sm:p-4">
+              <div className="flex items-center justify-center">
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                <span className="text-sm">Loading campaigns…</span>
               </div>
             </div>
-          )}
+          ) : campaigns.length > 0 ? (
+            <div className="bg-white border-b border-gray-200 p-3 sm:p-4">
+              <h3 className="text-sm font-semibold mb-3">Select Campaign</h3>
+              <div className="max-w-lg">
+                <Select value={selectedCampaign?.id || ""} onValueChange={handleCampaignChange}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select a campaign" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-64">
+                    {campaigns.map((campaign) => (
+                      <SelectItem key={campaign.id} value={campaign.id} className="whitespace-normal">
+                        <div className="flex flex-col">
+                          <span className="font-medium text-sm">{campaign.campaignName}</span>
+                          <span className="text-xs text-gray-500 break-all">ID: {campaign.outboundId}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          ) : null}
 
           {/* Filters */}
           {isConfigured && (
@@ -1067,10 +1199,7 @@ const CallsPage = () => {
                       <SelectItem value="150">Unreachable</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Select
-                    value={filters.limit.toString()}
-                    onValueChange={(value) => handleFilterChange({ limit: Number.parseInt(value) })}
-                  >
+                  <Select value={filters.limit.toString()} onValueChange={(value) => handleFilterChange({ limit: Number.parseInt(value) })}>
                     <SelectTrigger className="w-16 sm:w-20 text-sm">
                       <SelectValue />
                     </SelectTrigger>
@@ -1205,9 +1334,7 @@ const CallsPage = () => {
                           </div>
                           <div className="flex justify-between items-center">
                             <span className="text-xs text-gray-500">Status</span>
-                            <Badge className={`${getStatusBadgeColor(call.status)} text-xs`}>
-                              {getStatusText(call.status)}
-                            </Badge>
+                            <Badge className={`${getStatusBadgeColor(call.status)} text-xs`}>{getStatusText(call.status)}</Badge>
                           </div>
                           <div className="flex justify-between items-center">
                             <span className="text-xs text-gray-500">Conversation</span>
@@ -1219,7 +1346,6 @@ const CallsPage = () => {
                           <div className="flex justify-between items-center">
                             <span className="text-xs text-gray-500">Tags</span>
                             <TagDots tags={call.tags ?? []} />
-                            
                           </div>
                         </div>
                       </div>
@@ -1232,15 +1358,9 @@ const CallsPage = () => {
                     <Phone className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                     <h3 className="text-lg font-medium text-gray-900 mb-2">No calls found</h3>
                     <p className="text-gray-500 mb-4 text-sm sm:text-base">
-                      {filters.searchInput || filters.statuses.length > 0
-                        ? "Try adjusting your filters"
-                        : "No calls have been made yet"}
+                      {filters.searchInput || filters.statuses.length > 0 ? "Try adjusting your filters" : "No calls have been made yet"}
                     </p>
-                    <Button
-                      onClick={() => fetchCalls()}
-                      size="sm"
-                      className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
-                    >
+                    <Button onClick={() => fetchCalls()} size="sm" className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700">
                       <RefreshCw className="h-4 w-4 mr-2" />
                       Refresh
                     </Button>
@@ -1255,11 +1375,7 @@ const CallsPage = () => {
                   </div>
                   <h3 className="text-lg font-medium text-gray-900 mb-2">Setup Required</h3>
                   <p className="text-gray-500 mb-4 text-sm sm:text-base">Please configure your API credentials to view calls</p>
-                  <Button
-                    onClick={handleEditCredentials}
-                    size="sm"
-                    className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
-                  >
+                  <Button onClick={handleEditCredentials} size="sm" className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700">
                     <Edit className="h-4 w-4 mr-2" />
                     Add Credentials
                   </Button>
@@ -1273,8 +1389,7 @@ const CallsPage = () => {
             <div className="bg-white border-t border-gray-200 p-3 sm:p-4">
               <div className="flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-0">
                 <div className="text-xs sm:text-sm text-gray-600 order-2 sm:order-1">
-                  Showing {filters.skip + 1} to {Math.min(filters.skip + filters.limit, totalCalls)} of{" "}
-                  {totalCalls.toLocaleString()} calls
+                  Showing {filters.skip + 1} to {Math.min(filters.skip + filters.limit, totalCalls)} of {totalCalls.toLocaleString()} calls
                 </div>
                 <div className="flex items-center space-x-2 order-1 sm:order-2">
                   <Button
@@ -1306,7 +1421,7 @@ const CallsPage = () => {
           )}
         </div>
 
-        {/* Enhanced Sidebar (layout similar to screenshot; colors intentionally simple) */}
+        {/* Enhanced Sidebar */}
         {sidebarOpen && selectedCall && (
           <>
             {/* Mobile Overlay */}
@@ -1337,24 +1452,21 @@ const CallsPage = () => {
                 </Button>
               </div>
 
-              {/* Content grid: left info & right transcript/event log (like screenshot layout) */}
+              {/* Content grid: left info & right transcript/event log */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 p-3 sm:p-4">
                 {/* LEFT: Info */}
                 <div className="space-y-4">
-                  {/* Faux top tabs to match layout */}
-               
-
-                  {/* Tags row (just dots for layout parity) */}
+                  {/* Tags */}
                   <div>
-  <h3 className="text-sm font-semibold mb-2 text-slate-800">Tags</h3>
-  <div className="flex flex-wrap gap-2">
-    {(callDetails?.tags ?? selectedCall?.tags ?? []).map((tag, index) => (
-      <Badge key={index} variant="secondary" className="px-2 py-1 text-xs">
-        {tag}
-      </Badge>
-    ))}
-  </div>
-</div>
+                    <h3 className="text-sm font-semibold mb-2 text-slate-800">Tags</h3>
+                    <div className="flex flex-wrap gap-2">
+                      {(callDetails?.tags ?? selectedCall?.tags ?? []).map((tag, index) => (
+                        <Badge key={index} variant="secondary" className="px-2 py-1 text-xs">
+                          {tag}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
 
                   {/* Summary Section */}
                   {callDetails?.summary && (
@@ -1366,14 +1478,12 @@ const CallsPage = () => {
                     </div>
                   )}
 
-                  {/* Call Details table-like */}
+                  {/* Call Details */}
                   <div>
                     <h3 className="text-sm font-semibold mb-3 text-slate-800">Call Details</h3>
                     <div className="grid grid-cols-1 sm:grid-cols-3 bg-white border rounded-lg overflow-hidden">
                       <div className="px-3 py-2 text-xs sm:text-sm bg-gray-50 border-b sm:border-b-0 sm:border-r">Lead Name</div>
-                      <div className="px-3 py-2 text-xs sm:text-sm sm:col-span-2 border-b">
-                        {callDetails?.name || "—"}
-                      </div>
+                      <div className="px-3 py-2 text-xs sm:text-sm sm:col-span-2 border-b">{callDetails?.name || "—"}</div>
 
                       <div className="px-3 py-2 text-xs sm:text-sm bg-gray-50 sm:border-r">Duration</div>
                       <div className="px-3 py-2 text-xs sm:text-sm sm:col-span-2 border-t sm:border-t-0">
@@ -1389,12 +1499,7 @@ const CallsPage = () => {
 
                       <div className="px-3 py-2 text-xs sm:text-sm bg-gray-50 border-t sm:border-r">Sentiment</div>
                       <div className="px-3 py-2 text-xs sm:text-sm sm:col-span-2 border-t">
-                        <span
-                          className={cn(
-                            "font-medium",
-                            getSentimentColor(callDetails?.overallSentiment ?? 3),
-                          )}
-                        >
+                        <span className={cn("font-medium", getSentimentColor(callDetails?.overallSentiment ?? 3))}>
                           {getSentimentText(callDetails?.overallSentiment ?? 3)}
                         </span>
                       </div>
@@ -1421,9 +1526,7 @@ const CallsPage = () => {
                         {callDetails.collectedInfo.map((info) => (
                           <div key={info.id} className="grid grid-cols-1 sm:grid-cols-3">
                             <div className="px-3 py-2 text-xs sm:text-sm bg-gray-50">{info.name}</div>
-                            <div className="px-3 py-2 text-xs sm:text-sm sm:col-span-2 break-words">
-                              {String(info.value)}
-                            </div>
+                            <div className="px-3 py-2 text-xs sm:text-sm sm:col-span-2 break-words">{String(info.value)}</div>
                           </div>
                         ))}
                       </div>
@@ -1436,19 +1539,13 @@ const CallsPage = () => {
                   <div className="flex items-center gap-2 mb-3">
                     <button
                       onClick={() => setActiveRightTab("transcript")}
-                      className={cn(
-                        "text-xs sm:text-sm px-3 py-1.5 rounded-md border",
-                        activeRightTab === "transcript" ? "bg-white shadow-sm" : "bg-white/60",
-                      )}
+                      className={cn("text-xs sm:text-sm px-3 py-1.5 rounded-md border", activeRightTab === "transcript" ? "bg-white shadow-sm" : "bg-white/60")}
                     >
                       Transcript
                     </button>
                     <button
                       onClick={() => setActiveRightTab("events")}
-                      className={cn(
-                        "text-xs sm:text-sm px-3 py-1.5 rounded-md border",
-                        activeRightTab === "events" ? "bg-white shadow-sm" : "bg-white/60",
-                      )}
+                      className={cn("text-xs sm:text-sm px-3 py-1.5 rounded-md border", activeRightTab === "events" ? "bg-white shadow-sm" : "bg-white/60")}
                     >
                       Event Log
                     </button>
@@ -1470,30 +1567,28 @@ const CallsPage = () => {
                             const isUser = message.role === 2
                             const isSystem = message.role === 3
 
-                            let bgGradient = "bg-gradient-to-r from-gray-400 to-gray-500"
-                            let textColor = "text-white"
                             let roleLabel = "Unknown"
+                            let bubbleClasses = "px-3 sm:px-4 py-2 sm:py-3 rounded-lg shadow-sm border text-slate-800 bg-white"
 
                             if (isAI) {
-                              bgGradient = "bg-gradient-to-br from-blue-500 via-purple-500 to-indigo-600"
-                              textColor = "text-white"
+                              // role 1 => "User"
                               roleLabel = "User"
+                              bubbleClasses = "px-3 sm:px-4 py-2 sm:py-3 rounded-lg shadow-sm border border-blue-200 bg-blue-50 text-slate-800"
                             } else if (isUser) {
-                              bgGradient = "bg-gradient-to-br from-emerald-500 via-green-500 to-teal-600"
-                              textColor = "text-white"
+                              // role 2 => "Agent"
                               roleLabel = "Agent"
+                              bubbleClasses = "px-3 sm:px-4 py-2 sm:py-3 rounded-lg shadow-sm border border-slate-200 bg-slate-50 text-slate-800"
                             } else if (isSystem) {
-                              bgGradient = "bg-gradient-to-br from-violet-500 via-purple-500 to-fuchsia-600"
-                              textColor = "text-white"
-                              roleLabel = "System"
+                              roleLabel = "User"
+                              bubbleClasses = "px-3 sm:px-4 py-2 sm:py-3 rounded-lg shadow-sm border border-blue-200 bg-blue-50 text-blue-800"
                             }
 
                             return (
                               <div key={index} className="mb-3 sm:mb-4">
                                 <div className="flex items-center justify-between mb-2">
-                                  <span className="text-xs font-medium text-gray-600">{roleLabel}</span>
+                                  <span className="text-xs font-medium text-slate-600">{roleLabel}</span>
                                 </div>
-                                <div className={`${bgGradient} ${textColor} px-3 sm:px-4 py-2 sm:py-3 rounded-lg shadow-sm`}>
+                                <div className={bubbleClasses}>
                                   <p className="text-sm leading-relaxed break-words">{message.content}</p>
                                 </div>
                               </div>
@@ -1509,21 +1604,15 @@ const CallsPage = () => {
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4 text-xs">
                               <div className="flex items-center gap-2">
                                 <div className="w-3 h-3 rounded bg-gradient-to-br from-blue-500 to-indigo-600"></div>
-                                <span className="text-gray-600">
-                                  User: {callDetails.transcript.filter((m) => m.role === 1).length}
-                                </span>
+                                <span className="text-gray-600">User: {callDetails.transcript.filter((m) => m.role === 1).length}</span>
                               </div>
                               <div className="flex items-center gap-2">
                                 <div className="w-3 h-3 rounded bg-gradient-to-br from-emerald-500 to-teal-600"></div>
-                                <span className="text-gray-600">
-                                  Agent: {callDetails.transcript.filter((m) => m.role === 2).length}
-                                </span>
+                                <span className="text-gray-600">Agent: {callDetails.transcript.filter((m) => m.role === 2).length}</span>
                               </div>
                               <div className="flex items-center gap-2">
                                 <div className="w-3 h-3 rounded bg-gradient-to-r from-purple-500 to-purple-600"></div>
-                                <span className="text-gray-600">
-                                  System: {callDetails.transcript.filter((m) => m.role === 3).length}
-                                </span>
+                                <span className="text-gray-600">System: {callDetails.transcript.filter((m) => m.role === 3).length}</span>
                               </div>
                               <div className="flex items-center gap-2">
                                 <div className="w-3 h-3 rounded bg-gradient-to-r from-gray-400 to-gray-500"></div>
@@ -1535,14 +1624,10 @@ const CallsPage = () => {
                       </div>
                     )}
 
-                    {/* Event Log placeholder for layout parity */}
-                    {activeRightTab === "events" && (
-                      <div className="bg-white border rounded-lg p-4 text-sm text-gray-500">
-                        Event Log data is not available for this call.
-                      </div>
-                    )}
+                    {/* Event Log placeholder */}
+                    {activeRightTab === "events" && <div className="bg-white border rounded-lg p-4 text-sm text-gray-500">Event Log data is not available for this call.</div>}
 
-                    {/* Recording (kept after the tabs like in screenshot bottom player) */}
+                    {/* Recording */}
                     {callDetails?.recording && (
                       <div>
                         <h3 className="text-sm font-semibold mb-2 text-slate-800">Recording</h3>

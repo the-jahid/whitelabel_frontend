@@ -40,6 +40,9 @@ import * as ToastPrimitives from "@radix-ui/react-toast"
 import { cva, type VariantProps } from "class-variance-authority"
 import { X } from "lucide-react"
 import { cn } from "@/lib/utils"
+import Link from "next/link"
+import { motion } from "motion/react";
+import Image from "next/image"
 
 /* ---------------- Toast ---------------- */
 const ToastProvider = ToastPrimitives.Provider
@@ -373,10 +376,10 @@ const OverviewPage = () => {
   const [activeSection, setActiveSection] = useState("overview")
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
-  // Active-state + toggling state
-  const [, setIsCampaignOn] = useState<boolean | null>(null)
-
-  const [, setIsCampaignChecking] = useState(false)
+  // --- NEW: campaign active/toggling state for the toggle button
+  const [isCampaignOn, setIsCampaignOn] = useState<boolean | null>(null)
+  const [isCampaignChecking, setIsCampaignChecking] = useState(false)
+  const [isToggling, setIsToggling] = useState(false)
 
   /* ---- STATUS CHECK ---- */
   const fetchOutboundActive = useCallback(
@@ -429,9 +432,70 @@ const OverviewPage = () => {
     [toast],
   )
 
+  /* ---- NEW: Toggle endpoint ---- */
+  const toggleOutboundActive = useCallback(async (outId: string, token: string, isActive: boolean) => {
+    const response = await fetch(`${ANALYTICS_API_BASE_URL}/Outbound/${outId}/Active`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token.replace("Bearer ", "")}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ isActive }),
+    })
+    if (!response.ok) {
+      let errorMessage = "Failed to toggle campaign."
+      switch (response.status) {
+        case 401:
+          errorMessage = "Invalid bearer token."
+          break
+        case 403:
+          errorMessage = "Access denied."
+          break
+        case 404:
+          errorMessage = "Outbound ID not found."
+          break
+        case 400:
+          errorMessage = "Invalid request body."
+          break
+        case 500:
+          errorMessage = "Server error."
+          break
+        default:
+          errorMessage = `API error (${response.status}).`
+      }
+      throw new Error(errorMessage)
+    }
+  }, [])
 
+  /* ---- NEW: Optimistic toggle handler used by the button ---- */
+  const handleCampaign = useCallback(async () => {
+    if (!selectedCampaign) {
+      toast({
+        title: "Missing credentials",
+        description: "Please select a campaign first.",
+        variant: "destructive",
+      })
+      return
+    }
+    if (isToggling || isCampaignChecking || isCampaignOn === null) return
 
-
+    const next = !isCampaignOn
+    setIsCampaignOn(next) // optimistic UI
+    setIsToggling(true)
+    try {
+      await toggleOutboundActive(selectedCampaign.outboundId, selectedCampaign.bearerToken, next)
+      toast({
+        title: next ? "Campaign enabled" : "Campaign disabled",
+        description: `Outbound ${selectedCampaign.outboundId} is now ${next ? "active" : "inactive"}.`,
+      })
+    } catch (err) {
+      setIsCampaignOn(!next) // revert
+      const msg = err instanceof Error ? err.message : "Unexpected error."
+      toast({ title: "Toggle failed", description: msg, variant: "destructive" })
+    } finally {
+      setIsToggling(false)
+    }
+  }, [selectedCampaign, isCampaignOn, isToggling, isCampaignChecking, toggleOutboundActive, toast])
 
   /* ---- Memo ---- */
   const userEmail = useMemo(() => user?.emailAddresses?.[0]?.emailAddress || "", [user?.emailAddresses])
@@ -607,9 +671,10 @@ const OverviewPage = () => {
   )
 
   const handleRefresh = useCallback(async () => {
-    if (!userEmail || refreshing) return
+    const userEmailLocal = userEmail
+    if (!userEmailLocal || refreshing) return
     setRefreshing(true)
-    const campaignsData = await fetchCampaigns(userEmail, false)
+    const campaignsData = await fetchCampaigns(userEmailLocal, false)
     if (campaignsData && campaignsData.length > 0 && selectedCampaign) {
       const updatedCampaign = campaignsData.find((c) => c.id === selectedCampaign.id)
       if (updatedCampaign) {
@@ -654,6 +719,11 @@ const OverviewPage = () => {
       }
     }
   }, [isLoaded, campaigns, selectedCampaign, fetchAnalytics, fetchOutboundActive])
+
+  // When no campaign selected, the toggle should be in the "unknown" state
+  useEffect(() => {
+    if (!selectedCampaign) setIsCampaignOn(null)
+  }, [selectedCampaign])
 
   const clearStoredCredentials = useCallback(() => {
     clearAnalyticsStorage()
@@ -1057,7 +1127,7 @@ const OverviewPage = () => {
         {/* Mobile sidebar overlay */}
         {sidebarOpen && (
           <div
-            className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px] lg:hidden"
+            className="fixed inset-0 z-20 bg-black/40 backdrop-blur-[2px] lg:hidden"
             onClick={() => setSidebarOpen(false)}
           />
         )}
@@ -1065,7 +1135,7 @@ const OverviewPage = () => {
         {/* Sidebar */}
         <div
           className={cn(
-            "fixed inset-y-0 left-0 z-50 w-72 sm:w-72 md:w-64 bg-white border-r border-gray-200 flex flex-col transform transition-transform duration-300 ease-in-out",
+            "fixed inset-y-0 left-0  w-72 sm:w-72 md:w-64 bg-white border-r border-gray-200 flex flex-col transform transition-transform duration-300 ease-in-out",
             "lg:translate-x-0 lg:static lg:inset-0",
             sidebarOpen ? "translate-x-0" : "-translate-x-full",
           )}
@@ -1080,6 +1150,20 @@ const OverviewPage = () => {
               <CloseIcon className="h-5 w-5" />
             </button>
           </div>
+
+            <Link
+      href="/"
+      className="relative z-20 flex items-center space-x-2 py-1 text-sm font-normal text-black mx-auto "
+    >
+      
+      <motion.span
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="font-medium whitespace-pre text-black dark:text-white"
+      >
+        <Image src={'https://www.ai-scaleup.com/wp-content/uploads/2024/03/Logo-AI-ScaleUp-300x59-1-300x59.png'} width={100} height={30}  alt="image_logo" />
+      </motion.span>
+    </Link>
 
           {/* Desktop header */}
           <div className="hidden lg:block p-6 border-b border-gray-200">
@@ -1138,7 +1222,48 @@ const OverviewPage = () => {
                   </SelectContent>
                 </Select>
 
-          
+                {/* === NEW: Campaign ON/OFF toggle button (same implementation as on Leads page) === */}
+                <button
+                  type="button"
+                  onClick={handleCampaign}
+                  role="switch"
+                  aria-checked={!!isCampaignOn}
+                  aria-label="Toggle outbound campaign"
+                  disabled={isToggling || isCampaignChecking || !selectedCampaign || isCampaignOn === null}
+                  title={
+                    isCampaignOn === null
+                      ? "Status unknown"
+                      : isCampaignOn
+                        ? "Campaign is ON"
+                        : "Campaign is OFF"
+                  }
+                  className={cn(
+                    "relative inline-flex h-8 w-full sm:w-36 select-none items-center my-1 rounded-full",
+                    "bg-neutral-100 border border-neutral-200 shadow-sm p-1",
+                    "transition-colors focus:outline-none focus:ring-2 focus:ring-black/5",
+                    (isToggling || isCampaignChecking || !selectedCampaign || isCampaignOn === null) &&
+                      "opacity-60 cursor-not-allowed",
+                  )}
+                >
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      "absolute top-1 bottom-1 left-1 w-[calc(50%-4px)] rounded-full transition-transform duration-200 shadow",
+                      isCampaignOn === null ? "bg-neutral-400/80" : isCampaignOn ? "bg-green-500" : "bg-red-500",
+                      isCampaignOn ? "translate-x-0" : "translate-x-[calc(100%+4px)]",
+                      "z-0",
+                    )}
+                  />
+                  <div className="relative z-10 grid w-full grid-cols-2 text-xs sm:text-sm font-medium">
+                    <span className={cn("text-center transition-colors", isCampaignOn ? "text-white" : "text-neutral-600")}>
+                      {isCampaignChecking ? "…" : "On"}
+                    </span>
+                    <span className={cn("text-center transition-colors", !isCampaignOn ? "text-white" : "text-neutral-600")}>
+                      {isCampaignChecking ? "…" : "Off"}
+                    </span>
+                  </div>
+                </button>
+                {/* === /toggle === */}
               </div>
             </div>
           ) : (

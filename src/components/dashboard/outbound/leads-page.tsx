@@ -300,9 +300,9 @@ export default function LeadsPage() {
   const isConfigured = !!campaignCreds
 
   // Campaign ON/OFF toggle state
-  const [isCampaignOn, setIsCampaignOn] = useState<boolean | null>(null)
-  const [isToggling, setIsToggling] = useState(false)
-  const [isCampaignChecking, setIsCampaignChecking] = useState(false)
+  const [, setIsCampaignOn] = useState<boolean | null>(null)
+
+  const [, setIsCampaignChecking] = useState(false)
 
   // Credentials modal state
   const [bearerToken, setBearerToken] = useState("")
@@ -372,68 +372,7 @@ export default function LeadsPage() {
     [toast],
   )
 
-  const toggleOutboundActive = useCallback(async (outId: string, token: string, isActive: boolean) => {
-    const response = await fetch(`${API_BASE_URL}/Outbound/${outId}/Active`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token.replace("Bearer ", "")}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ isActive }),
-    })
-    if (!response.ok) {
-      let errorMessage = "Failed to toggle campaign."
-      switch (response.status) {
-        case 401:
-          errorMessage = "Invalid bearer token."
-          break
-        case 403:
-          errorMessage = "Access denied."
-          break
-        case 404:
-          errorMessage = "Outbound ID not found."
-          break
-        case 400:
-          errorMessage = "Invalid request body."
-          break
-        case 500:
-          errorMessage = "Server error."
-          break
-        default:
-          errorMessage = `API error (${response.status}).`
-      }
-      throw new Error(errorMessage)
-    }
-  }, [])
-
-  const handleCampaign = useCallback(async () => {
-    if (!campaignCreds?.outboundId || !campaignCreds?.bearerToken) {
-      toast({
-        title: "Missing credentials",
-        description: "Please configure your Bearer Token and Outbound ID first.",
-        variant: "destructive",
-      })
-      return
-    }
-    if (isToggling || isCampaignChecking || isCampaignOn === null) return
-
-    const next = !isCampaignOn
-    setIsCampaignOn(next) // optimistic
-    setIsToggling(true)
-    try {
-      await toggleOutboundActive(campaignCreds.outboundId, campaignCreds.bearerToken, next)
-      toast({
-        title: next ? "Campaign enabled" : "Campaign disabled",
-        description: `Outbound ${campaignCreds.outboundId} is now ${next ? "active" : "inactive"}.`,
-      })
-    } catch (err) {
-      setIsCampaignOn(!next) // revert
-      const msg = err instanceof Error ? err.message : "Unexpected error."
-      toast({ title: "Toggle failed", description: msg, variant: "destructive" })
-    } finally {
-      setIsToggling(false)
-    }
-  }, [campaignCreds, isCampaignOn, isToggling, isCampaignChecking, toggleOutboundActive, toast])
+ 
 
   /* ======== Load creds from localStorage ======== */
   useEffect(() => {
@@ -506,12 +445,7 @@ export default function LeadsPage() {
 
  
 
-  const clearStoredCredentials = () => {
-    clearLeadsStorage()
-    setCampaignCreds(null)
-    setIsCampaignOn(null)
-    toast({ title: "Cleared", description: "Stored credentials have been cleared." })
-  }
+
 
   /* ======== Lead form handlers ======== */
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -907,15 +841,9 @@ export default function LeadsPage() {
 
           <div className="flex items-center space-x-2">
             
-            {isConfigured && (
-              <Button variant="destructive" size="sm" onClick={clearStoredCredentials}>
-                <XIcon className="mr-2 h-4 w-4" />
-                Clear
-              </Button>
-            )}
-
+          
             {/* Segmented toggle - wired to campaignCreds */}
-            <button
+            {/* <button
               type="button"
               onClick={handleCampaign}
               role="switch"
@@ -951,7 +879,7 @@ export default function LeadsPage() {
                   {isCampaignChecking ? "…" : "Off"}
                 </span>
               </div>
-            </button>
+            </button> */}
           </div>
         </div>
 
@@ -1229,7 +1157,7 @@ export default function LeadsPage() {
         {/* Tabs become 1 column on small screens */}
         <TabsList className="grid w-full grid-cols-1 sm:grid-cols-3 gap-2">
           <TabsTrigger value="paste">Paste Data</TabsTrigger>
-          <TabsTrigger value="upload">Upload CSV</TabsTrigger>
+          <TabsTrigger value="upload">Upload File</TabsTrigger>
           <TabsTrigger value="format">Format Guide</TabsTrigger>
         </TabsList>
 
@@ -1255,10 +1183,10 @@ export default function LeadsPage() {
               <div className="mt-3 sm:mt-4">
                 <label htmlFor="csv-upload" className="cursor-pointer">
                   <span className="mt-2 block text-sm font-medium text-gray-900">
-                    Upload CSV file
+                    Upload File
                   </span>
                   <span className="mt-1 block text-xs sm:text-sm text-gray-500">
-                    Select a CSV file with name, email, and phone columns
+                    Select a   file with name, email, and phone columns
                   </span>
                 </label>
                 <input

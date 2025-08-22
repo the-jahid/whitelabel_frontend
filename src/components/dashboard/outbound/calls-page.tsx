@@ -964,18 +964,7 @@ const CallsPage = () => {
     setCallDetails(null)
   }, [])
 
-  // Clear stored credentials (also forget campaign via STORAGE_KEYS iteration)
-  const clearStoredCredentials = useCallback(() => {
-    clearCallsStorage()
-    setCalls([])
-    setTotalCalls(0)
-    setIsConfigured(false)
-    setSelectedCampaign(null)
-    toast({
-      title: "Cleared",
-      description: "Stored credentials have been cleared.",
-    })
-  }, [toast])
+
 
   // Initial data fetch
   useEffect(() => {
@@ -1041,53 +1030,114 @@ const CallsPage = () => {
         {/* Main Content */}
         <div className={`flex-1 flex flex-col ${sidebarOpen ? "lg:mr-[840px]" : ""} transition-all duration-300`}>
           {/* Header */}
-          <div className="bg-white border-b border-gray-200 p-3 sm:p-4 lg:p-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
-              <div className="flex items-center space-x-2 sm:space-x-4">
-                <h1 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">
-                  Calls Dashboard
-                </h1>
-                {totalCalls > 0 && (
-                  <Badge variant="secondary" className="text-xs sm:text-sm bg-blue-100 text-blue-800">
-                    {totalCalls.toLocaleString()} total
-                  </Badge>
-                )}
-              </div>
-              <div className="flex items-center space-x-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleRefresh}
-                  disabled={refreshing || loading}
-                  className="text-xs sm:text-sm bg-transparent transition-all duration-200 hover:shadow-md"
-                >
-                  <RefreshCw className={`h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2 ${refreshing ? "animate-spin" : ""}`} />
-                  <span className="hidden sm:inline">Refresh</span>
-                </Button>
-                {/* <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleEditCredentials}
-                  className="text-xs sm:text-sm bg-transparent transition-all duration-200 hover:shadow-md"
-                >
-                  <Edit className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
-                  <span className="hidden sm:inline">{isConfigured ? "Edit Credentials" : "Add Credentials"}</span>
-                  <span className="sm:hidden">Config</span>
-                </Button> */}
-                {isConfigured && (
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={clearStoredCredentials}
-                    className="text-xs sm:text-sm bg-transparent transition-all duration-200 hover:shadow-md"
-                  >
-                    <X className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
-                    <span className="hidden sm:inline">Clear</span>
-                  </Button>
-                )}
-              </div>
+          {/* HEADER + RESPONSIVE CAMPAIGN SELECT */}
+{/* HEADER + ALT RESPONSIVE CAMPAIGN UI */}
+<div className="bg-white border-b border-gray-200 p-3 sm:p-4 lg:p-6">
+  <div className="flex flex-col gap-3 sm:gap-4">
+    {/* Row 1 — title & actions */}
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex items-center gap-2 sm:gap-4">
+        <h1 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">
+          Calls Dashboard
+        </h1>
+        {totalCalls > 0 && (
+          <Badge variant="secondary" className="text-xs sm:text-sm bg-blue-100 text-blue-800">
+            {totalCalls.toLocaleString()} total
+          </Badge>
+        )}
+      </div>
+
+      {/* Actions + (md+) inline campaign selector */}
+      <div className="flex items-center gap-2 sm:justify-end">
+        {/* md+ Campaign inline */}
+        {campaigns.length > 0 && !campaignsLoading && (
+          <div className="hidden md:flex items-center gap-2">
+            <span className="text-xs text-slate-500">Campaign</span>
+            <div className="w-56">
+              <Select value={selectedCampaign?.id || ""} onValueChange={handleCampaignChange}>
+                <SelectTrigger className="h-9 rounded-lg border-slate-200 bg-white text-sm shadow-sm hover:bg-slate-50">
+                  <SelectValue placeholder="Select campaign" />
+                </SelectTrigger>
+                <SelectContent className="max-h-72 overflow-auto rounded-xl border-slate-200">
+                  {campaigns.map((c) => (
+                    <SelectItem key={c.id} value={c.id} className="whitespace-normal py-2 px-2">
+                      <div className="flex flex-col">
+                        <span className="font-medium text-sm leading-tight line-clamp-1">
+                          {c.campaignName}
+                        </span>
+                        <span className="text-[11px] text-gray-500 break-all">ID: {c.outboundId}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
+        )}
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleRefresh}
+          disabled={refreshing || loading}
+          className="text-xs sm:text-sm bg-transparent transition-all duration-200 hover:shadow-md"
+        >
+          <RefreshCw className={`h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2 ${refreshing ? "animate-spin" : ""}`} />
+          <span className="hidden sm:inline">Refresh</span>
+        </Button>
+      </div>
+    </div>
+
+    {/* Row 2 — (sm-) campaign selector as its own toolbar row */}
+    {campaignsLoading ? (
+      <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+        <div className="flex items-center justify-center">
+          <Loader2 className="h-4 w-4 animate-spin mr-2" />
+          <span className="text-sm">Loading campaigns…</span>
+        </div>
+      </div>
+    ) : campaigns.length > 0 ? (
+      <>
+        {/* Mobile / small screens: full-width control */}
+        <div className="md:hidden">
+          <div className="rounded-lg border border-slate-200 bg-white p-3">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-semibold">Select Campaign</h3>
+              <Badge variant="secondary" className="text-[11px]">
+                {campaigns.length} available
+              </Badge>
+            </div>
+            <Select value={selectedCampaign?.id || ""} onValueChange={handleCampaignChange}>
+              <SelectTrigger className="w-full h-11 rounded-lg border-slate-200 bg-white text-sm shadow-sm hover:bg-slate-50">
+                <SelectValue placeholder="Select a campaign" />
+              </SelectTrigger>
+              <SelectContent className="max-h-72 overflow-auto rounded-xl border-slate-200">
+                {campaigns.map((c) => (
+                  <SelectItem key={c.id} value={c.id} className="whitespace-normal py-2 px-2">
+                    <div className="flex flex-col">
+                      <span className="font-medium text-sm leading-tight line-clamp-1">
+                        {c.campaignName}
+                      </span>
+                      <span className="text-[11px] text-gray-500 break-all">ID: {c.outboundId}</span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="mt-2 text-[11px] text-slate-500">
+              Choose a campaign to see its calls. You can change it anytime.
+            </p>
+          </div>
+        </div>
+
+        {/* Summary strip (all sizes), layout adapts with breakpoints */}
+       
+      </>
+    ) : null}
+  </div>
+</div>
+
+
 
           {/* User Status */}
           {loading ? (
@@ -1137,36 +1187,8 @@ const CallsPage = () => {
             <div></div>
           )}
 
-          {/* Campaign Selection (Calls page only) */}
-          {campaignsLoading ? (
-            <div className="bg-white border-b border-gray-200 p-3 sm:p-4">
-              <div className="flex items-center justify-center">
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                <span className="text-sm">Loading campaigns…</span>
-              </div>
-            </div>
-          ) : campaigns.length > 0 ? (
-            <div className="bg-white border-b border-gray-200 p-3 sm:p-4">
-              <h3 className="text-sm font-semibold mb-3">Select Campaign</h3>
-              <div className="max-w-lg">
-                <Select value={selectedCampaign?.id || ""} onValueChange={handleCampaignChange}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select a campaign" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-64">
-                    {campaigns.map((campaign) => (
-                      <SelectItem key={campaign.id} value={campaign.id} className="whitespace-normal">
-                        <div className="flex flex-col">
-                          <span className="font-medium text-sm">{campaign.campaignName}</span>
-                          <span className="text-xs text-gray-500 break-all">ID: {campaign.outboundId}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          ) : null}
+          {/* Campaign Selection — UI/Responsiveness improved */}
+ 
 
           {/* Filters */}
           {isConfigured && (
@@ -1364,6 +1386,9 @@ const CallsPage = () => {
                       <RefreshCw className="h-4 w-4 mr-2" />
                       Refresh
                     </Button>
+
+
+                    
                   </div>
                 </div>
               )

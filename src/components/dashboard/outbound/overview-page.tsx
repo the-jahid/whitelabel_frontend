@@ -376,7 +376,13 @@ const OverviewPage = () => {
   const [activeSection, setActiveSection] = useState("overview")
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
-  // --- NEW: campaign active/toggling state for the toggle button
+  // --- NEW (Cost Analysis local filter) ---
+  type Preset = "7d" | "14d" | "30d" | "60d" | "All" | "Custom"
+  const [costFilterPreset, setCostFilterPreset] = useState<Preset>("All")
+  const [costCustomFrom, setCostCustomFrom] = useState<string>("")
+  const [costCustomTo, setCostCustomTo] = useState<string>("")
+
+  // --- Campaign ON/OFF toggle states ---
   const [isCampaignOn, setIsCampaignOn] = useState<boolean | null>(null)
   const [isCampaignChecking, setIsCampaignChecking] = useState(false)
   const [isToggling, setIsToggling] = useState(false)
@@ -432,7 +438,7 @@ const OverviewPage = () => {
     [toast],
   )
 
-  /* ---- NEW: Toggle endpoint ---- */
+  /* ---- Toggle endpoint ---- */
   const toggleOutboundActive = useCallback(async (outId: string, token: string, isActive: boolean) => {
     const response = await fetch(`${ANALYTICS_API_BASE_URL}/Outbound/${outId}/Active`, {
       method: "POST",
@@ -467,7 +473,7 @@ const OverviewPage = () => {
     }
   }, [])
 
-  /* ---- NEW: Optimistic toggle handler used by the button ---- */
+  /* ---- Optimistic toggle handler ---- */
   const handleCampaign = useCallback(async () => {
     if (!selectedCampaign) {
       toast({
@@ -480,7 +486,7 @@ const OverviewPage = () => {
     if (isToggling || isCampaignChecking || isCampaignOn === null) return
 
     const next = !isCampaignOn
-    setIsCampaignOn(next) // optimistic UI
+    setIsCampaignOn(next)
     setIsToggling(true)
     try {
       await toggleOutboundActive(selectedCampaign.outboundId, selectedCampaign.bearerToken, next)
@@ -489,7 +495,7 @@ const OverviewPage = () => {
         description: `Outbound ${selectedCampaign.outboundId} is now ${next ? "active" : "inactive"}.`,
       })
     } catch (err) {
-      setIsCampaignOn(!next) // revert
+      setIsCampaignOn(!next)
       const msg = err instanceof Error ? err.message : "Unexpected error."
       toast({ title: "Toggle failed", description: msg, variant: "destructive" })
     } finally {
@@ -518,6 +524,81 @@ const OverviewPage = () => {
       return { date, totalPrice, averageCostPerCall }
     })
   }, [analyticsData])
+
+  // ----- Cost Analysis local filter (computed range over ourCostTimeline) -----
+  const costDataMinDate = useMemo(() => {
+    if (!ourCostTimeline.length) return null
+    const t = Math.min(...ourCostTimeline.map(d => new Date(d.date).getTime()))
+    return new Date(t)
+  }, [ourCostTimeline])
+
+  const costDataMaxDate = useMemo(() => {
+    if (!ourCostTimeline.length) return null
+    const t = Math.max(...ourCostTimeline.map(d => new Date(d.date).getTime()))
+    return new Date(t)
+  }, [ourCostTimeline])
+
+  const formatInputDate = (d: Date) => d.toISOString().slice(0, 10)
+
+  const costDataFiltered = useMemo(() => {
+    const data = ourCostTimeline
+    if (!data.length) return []
+    if (costFilterPreset === "All") return data
+
+    const sorted = [...data].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    const minDate = new Date(sorted[0].date)
+    const maxDate = new Date(sorted[sorted.length - 1].date)
+
+    let from: Date
+    let to: Date
+
+    if (costFilterPreset === "Custom") {
+      if (!costCustomFrom || !costCustomTo) return data
+      from = new Date(costCustomFrom)
+      to = new Date(costCustomTo)
+    } else {
+      const daysMap: Record<Exclude<Preset, "Custom">, number> = {
+        "7d": 7,
+        "14d": 14,
+        "30d": 30,
+        "60d": 60,
+        "All": Number.MAX_SAFE_INTEGER,
+      }
+      const days = daysMap[costFilterPreset]
+      to = maxDate
+      from = new Date(to)
+      from.setDate(from.getDate() - (days - 1))
+      if (from < minDate) from = minDate
+    }
+
+    const fromTs = from.getTime()
+    const toTs = new Date(to.getFullYear(), to.getMonth(), to.getDate(), 23, 59, 59, 999).getTime()
+
+    return data.filter(d => {
+      const t = new Date(d.date).getTime()
+      return t >= fromTs && t <= toTs
+    })
+  }, [ourCostTimeline, costFilterPreset, costCustomFrom, costCustomTo])
+
+  const applyCustomCostRange = useCallback(() => {
+    if (!costCustomFrom || !costCustomTo) {
+      toast({ title: "Missing dates", description: "Select both start and end dates.", variant: "destructive" })
+      return
+    }
+    const from = new Date(costCustomFrom)
+    const to = new Date(costCustomTo)
+    if (from > to) {
+      toast({ title: "Invalid range", description: "Start date must be before end date.", variant: "destructive" })
+      return
+    }
+    setCostFilterPreset("Custom")
+  }, [costCustomFrom, costCustomTo, toast])
+
+  const resetCostRange = useCallback(() => {
+    setCostCustomFrom("")
+    setCostCustomTo("")
+    setCostFilterPreset("All")
+  }, [])
 
   /* ---- Data Fetchers ---- */
   const fetchCampaigns = useCallback(
@@ -720,7 +801,6 @@ const OverviewPage = () => {
     }
   }, [isLoaded, campaigns, selectedCampaign, fetchAnalytics, fetchOutboundActive])
 
-  // When no campaign selected, the toggle should be in the "unknown" state
   useEffect(() => {
     if (!selectedCampaign) setIsCampaignOn(null)
   }, [selectedCampaign])
@@ -976,14 +1056,54 @@ const OverviewPage = () => {
             </div>
 
             <Card className="min-w-0">
-              <CardHeader>
-                <CardTitle>Cost Analysis</CardTitle>
-                <CardDescription>Total cost and average cost per call over time</CardDescription>
+              <CardHeader className="space-y-2">
+                <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+                  <div>
+                    <CardTitle>Cost Analysis</CardTitle>
+                    <CardDescription>Total cost and average cost per call over time</CardDescription>
+                  </div>
+
+                  {/* --- Time filter controls --- */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {(["7d","14d","30d","60d","All"] as const).map(preset => (
+                      <Button
+                        key={preset}
+                        size="sm"
+                        variant={costFilterPreset === preset ? "default" : "outline"}
+                        onClick={() => setCostFilterPreset(preset)}
+                      >
+                        {preset}
+                      </Button>
+                    ))}
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="date"
+                        className="h-9 rounded-md border px-2 text-sm"
+                        value={costCustomFrom}
+                        max={costDataMaxDate ? formatInputDate(costDataMaxDate) : undefined}
+                        min={costDataMinDate ? formatInputDate(costDataMinDate) : undefined}
+                        onChange={(e) => setCostCustomFrom(e.target.value)}
+                      />
+                      <span className="text-xs text-gray-500">to</span>
+                      <input
+                        type="date"
+                        className="h-9 rounded-md border px-2 text-sm"
+                        value={costCustomTo}
+                        max={costDataMaxDate ? formatInputDate(costDataMaxDate) : undefined}
+                        min={costDataMinDate ? formatInputDate(costDataMinDate) : undefined}
+                        onChange={(e) => setCostCustomTo(e.target.value)}
+                      />
+                      <Button size="sm" onClick={applyCustomCostRange}>Apply</Button>
+                      <Button size="sm" variant="outline" onClick={resetCostRange}>Reset</Button>
+                    </div>
+                  </div>
+                </div>
               </CardHeader>
+
               <CardContent>
                 <div className="h-[230px] sm:h-[260px] lg:h-[300px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={ourCostTimeline}>
+                    <LineChart data={costDataFiltered}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="date" tickFormatter={(v) => new Date(v).toLocaleDateString()} fontSize={12} />
                       <YAxis yAxisId="left" fontSize={12} tickFormatter={(v: number) => `$${v.toFixed(2)}`} />
@@ -1151,19 +1271,18 @@ const OverviewPage = () => {
             </button>
           </div>
 
-            <Link
-      href="/"
-      className="relative z-20 flex items-center space-x-2 py-1 text-sm font-normal text-black mx-auto "
-    >
-      
-      <motion.span
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        className="font-medium whitespace-pre text-black dark:text-white"
-      >
-        <Image src={'https://www.ai-scaleup.com/wp-content/uploads/2024/03/Logo-AI-ScaleUp-300x59-1-300x59.png'} width={100} height={30}  alt="image_logo" />
-      </motion.span>
-    </Link>
+          <Link
+            href="/"
+            className="relative z-20 flex items-center space-x-2 py-1 text-sm font-normal text-black mx-auto "
+          >
+            <motion.span
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="font-medium whitespace-pre text-black dark:text-white"
+            >
+              <Image src={'https://www.ai-scaleup.com/wp-content/uploads/2024/03/Logo-AI-ScaleUp-300x59-1-300x59.png'} width={100} height={30}  alt="image_logo" />
+            </motion.span>
+          </Link>
 
           {/* Desktop header */}
           <div className="hidden lg:block p-6 border-b border-gray-200">
@@ -1222,7 +1341,7 @@ const OverviewPage = () => {
                   </SelectContent>
                 </Select>
 
-                {/* === NEW: Campaign ON/OFF toggle button (same implementation as on Leads page) === */}
+                {/* Campaign ON/OFF toggle */}
                 <button
                   type="button"
                   onClick={handleCampaign}
@@ -1263,7 +1382,6 @@ const OverviewPage = () => {
                     </span>
                   </div>
                 </button>
-                {/* === /toggle === */}
               </div>
             </div>
           ) : (
@@ -1275,7 +1393,7 @@ const OverviewPage = () => {
             </div>
           )}
 
-          {/* Navigation (scrollable if needed) */}
+          {/* Navigation */}
           <nav className="flex-1 p-4 overflow-y-auto">
             <div className="space-y-1">
               {sidebarItems.map((item) => {
@@ -1334,7 +1452,7 @@ const OverviewPage = () => {
             <div className="w-9" />
           </div>
 
-          {/* Content area (scrolls on mobile & desktop) */}
+          {/* Content area */}
           <div
             className="flex-1 overflow-y-auto touch-pan-y"
             style={{ WebkitOverflowScrolling: "touch" }}

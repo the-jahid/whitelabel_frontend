@@ -1047,45 +1047,55 @@ const CallsPage = () => {
         )}
       </div>
 
-      {/* Actions + (md+) inline campaign selector */}
-      <div className="flex items-center gap-2 sm:justify-end">
-        {/* md+ Campaign inline */}
-        {campaigns.length > 0 && !campaignsLoading && (
-          <div className="hidden md:flex items-center gap-2">
-            <span className="text-xs text-slate-500">Campaign</span>
-            <div className="w-56">
-              <Select value={selectedCampaign?.id || ""} onValueChange={handleCampaignChange}>
-                <SelectTrigger className="h-9 rounded-lg border-slate-200 bg-white text-sm shadow-sm hover:bg-slate-50">
-                  <SelectValue placeholder="Select campaign" />
-                </SelectTrigger>
-                <SelectContent className="max-h-72 overflow-auto rounded-xl border-slate-200">
-                  {campaigns.map((c) => (
-                    <SelectItem key={c.id} value={c.id} className="whitespace-normal py-2 px-2">
-                      <div className="flex flex-col">
-                        <span className="font-medium text-sm leading-tight line-clamp-1">
-                          {c.campaignName}
-                        </span>
-                        <span className="text-[11px] text-gray-500 break-all">ID: {c.outboundId}</span>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        )}
+    {/* Actions + responsive campaign selector */}
+<div className="flex w-full flex-col sm:flex-row sm:items-center sm:justify-end gap-2 sm:gap-3">
+  {/* Campaign selector – visible on ALL breakpoints */}
+  {campaigns.length > 0 && !loading && (
+    <div className="flex items-center gap-2 w-full sm:w-auto">
+      {/* Show label only on >= sm to save space on phones */}
+      <span className="hidden sm:inline text-xs text-slate-500">Select Campaign</span>
 
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleRefresh}
-          disabled={refreshing || loading}
-          className="text-xs sm:text-sm bg-transparent transition-all duration-200 hover:shadow-md"
-        >
-          <RefreshCw className={`h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2 ${refreshing ? "animate-spin" : ""}`} />
-          <span className="hidden sm:inline">Refresh</span>
-        </Button>
+      <div className="w-full sm:w-64 md:w-56">
+        <Select value={selectedCampaign?.id || ""} onValueChange={handleCampaignChange}>
+          {/* Light blue trigger */}
+          <SelectTrigger className="h-10 rounded-lg border-blue-200 bg-blue-50 text-sm shadow-sm hover:bg-blue-100 focus:border-blue-300 focus:ring-2 focus:ring-blue-500/30 transition-colors">
+            <SelectValue placeholder="Select campaign" />
+          </SelectTrigger>
+
+          {/* Light blue dropdown */}
+          <SelectContent className="max-h-72 overflow-auto rounded-xl border-blue-200 bg-blue-50">
+            {campaigns.map((c) => (
+              <SelectItem
+                key={c.id}
+                value={c.id}
+                className="whitespace-normal py-2 px-2 data-[highlighted]:bg-blue-100 data-[state=checked]:bg-blue-100"
+              >
+                <div className="flex flex-col">
+                  <span className="font-medium text-sm leading-tight line-clamp-1">{c.campaignName}</span>
+                  <span className="text-[11px] text-gray-600 break-all">ID: {c.outboundId}</span>
+                </div>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
+    </div>
+  )}
+
+  {/* Refresh */}
+  <Button
+    variant="outline"
+    size="sm"
+    onClick={handleRefresh}
+    disabled={refreshing || loading}
+    className="text-xs sm:text-sm bg-transparent transition-all duration-200 hover:shadow-md self-start sm:self-auto"
+  >
+    <RefreshCw className={`h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2 ${refreshing ? "animate-spin" : ""}`} />
+    <span className="hidden sm:inline">Refresh</span>
+    <span className="sm:hidden">Reload</span>
+  </Button>
+</div>
+
     </div>
 
     {/* Row 2 — (sm-) campaign selector as its own toolbar row */}
